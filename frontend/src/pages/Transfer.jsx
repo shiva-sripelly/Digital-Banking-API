@@ -75,7 +75,7 @@ export default function Transfer() {
 
           <button
             type="submit"
-            className="w-full bg-blue-700 text-white py-3 rounded-lg font-semibold hover:bg-blue-800"
+            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition"
           >
             Transfer Funds
           </button>

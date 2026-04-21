@@ -57,7 +57,7 @@ export default function Deposit() {
 
           <button
             type="submit"
-            className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700"
+            className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition"
           >
             Deposit
           </button>

@@ -57,7 +57,7 @@ export default function Withdraw() {
 
           <button
             type="submit"
-            className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700"
+            className="w-full bg-gradient-to-r from-rose-500 to-pink-500 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition"
           >
             Withdraw
           </button>

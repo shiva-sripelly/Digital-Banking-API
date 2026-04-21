@@ -13,7 +13,7 @@ import History from "./pages/History";
 
 function AppLayout({ children }) {
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-violet-100">
       <Navbar />
       <main>{children}</main>
     </div>
