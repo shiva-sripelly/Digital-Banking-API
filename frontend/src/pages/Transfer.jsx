@@ -1,0 +1,86 @@
+import { useState } from "react";
+import api from "../api/axios";
+
+export default function Transfer() {
+  const [form, setForm] = useState({
+    receiver_account_number: "",
+    amount: "",
+  });
+
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await api.post("/transactions/transfer", {
+        receiver_account_number: form.receiver_account_number,
+        amount: Number(form.amount),
+      });
+
+      setMessage(`Transfer successful. Reference: ${response.data.reference}`);
+      setForm({
+        receiver_account_number: "",
+        amount: "",
+      });
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Transfer failed");
+    }
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto p-6">
+      <h2 className="text-3xl font-bold text-blue-700 mb-6">Fund Transfer</h2>
+
+      <div className="bg-white shadow-lg rounded-2xl p-6 border">
+        {message && (
+          <div className="bg-green-100 text-green-700 p-3 rounded-lg mb-4">
+            {message}
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="text"
+            name="receiver_account_number"
+            placeholder="Receiver account number"
+            value={form.receiver_account_number}
+            onChange={handleChange}
+            className="w-full border rounded-lg px-4 py-3"
+            required
+          />
+
+          <input
+            type="number"
+            name="amount"
+            placeholder="Amount"
+            value={form.amount}
+            onChange={handleChange}
+            className="w-full border rounded-lg px-4 py-3"
+            required
+          />
+
+          <button
+            type="submit"
+            className="w-full bg-blue-700 text-white py-3 rounded-lg font-semibold hover:bg-blue-800"
+          >
+            Transfer Funds
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
