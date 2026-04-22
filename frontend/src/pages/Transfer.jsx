@@ -1,6 +1,20 @@
 import { useState } from "react";
 import api from "../api/axios";
 
+function getErrorMessage(err) {
+  const detail = err?.response?.data?.detail;
+
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item.msg).join(", ");
+  }
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  return "Transfer failed";
+}
+
 export default function Transfer() {
   const [form, setForm] = useState({
     receiver_account_number: "",
@@ -19,10 +33,22 @@ export default function Transfer() {
     setMessage("");
     setError("");
 
+    const numericAmount = Number(form.amount);
+
+    if (!form.receiver_account_number.trim()) {
+      setError("Please enter receiver account number.");
+      return;
+    }
+
+    if (!form.amount || Number.isNaN(numericAmount) || numericAmount <= 0) {
+      setError("Please enter a valid amount greater than 0.");
+      return;
+    }
+
     try {
       const response = await api.post("/transactions/transfer", {
         receiver_account_number: form.receiver_account_number,
-        amount: Number(form.amount),
+        amount: numericAmount,
       });
 
       setMessage(`Transfer successful. Reference: ${response.data.reference}`);
@@ -31,7 +57,7 @@ export default function Transfer() {
         amount: "",
       });
     } catch (err) {
-      setError(err?.response?.data?.detail || "Transfer failed");
+      setError(getErrorMessage(err));
     }
   };
 
@@ -70,6 +96,8 @@ export default function Transfer() {
             value={form.amount}
             onChange={handleChange}
             className="w-full border rounded-lg px-4 py-3"
+            min="1"
+            step="0.01"
             required
           />
 

@@ -10,6 +10,8 @@ import Transfer from "./pages/Transfer";
 import Deposit from "./pages/Deposit";
 import Withdraw from "./pages/Withdraw";
 import History from "./pages/History";
+import Payments from "./pages/Payments";
+import AIChat from "./pages/AIChat";
 
 function AppLayout({ children }) {
   return (
@@ -41,6 +43,8 @@ export default function App() {
           <Route path="/deposit" element={<ProtectedPage><Deposit /></ProtectedPage>} />
           <Route path="/withdraw" element={<ProtectedPage><Withdraw /></ProtectedPage>} />
           <Route path="/history" element={<ProtectedPage><History /></ProtectedPage>} />
+          <Route path="/payments" element={<ProtectedPage><Payments /></ProtectedPage>} />
+          <Route path="/ai-chat" element={<ProtectedPage><AIChat /></ProtectedPage>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -1,6 +1,20 @@
 import { useState } from "react";
 import api from "../api/axios";
 
+function getErrorMessage(err) {
+  const detail = err?.response?.data?.detail;
+
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item.msg).join(", ");
+  }
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  return "Deposit failed";
+}
+
 export default function Deposit() {
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("");
@@ -11,9 +25,16 @@ export default function Deposit() {
     setMessage("");
     setError("");
 
+    const numericAmount = Number(amount);
+
+    if (!amount || Number.isNaN(numericAmount) || numericAmount <= 0) {
+      setError("Please enter a valid amount greater than 0.");
+      return;
+    }
+
     try {
       const response = await api.post("/transactions/deposit", {
-        amount: Number(amount),
+        amount: numericAmount,
       });
 
       setMessage(
@@ -23,7 +44,7 @@ export default function Deposit() {
       );
       setAmount("");
     } catch (err) {
-      setError(err?.response?.data?.detail || "Deposit failed");
+      setError(getErrorMessage(err));
     }
   };
 
@@ -52,6 +73,8 @@ export default function Deposit() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             className="w-full border rounded-lg px-4 py-3"
+            min="1"
+            step="0.01"
             required
           />
 

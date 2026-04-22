@@ -1,11 +1,11 @@
 from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
 from app.repositories.account_repository import AccountRepository
 from app.repositories.transaction_repository import TransactionRepository
 from app.utils.helpers import generate_transaction_reference
-
+from app.repositories.user_repository import UserRepository
+from app.core.email import send_email
 
 class TransactionService:
     @staticmethod
@@ -62,6 +62,16 @@ class TransactionService:
         db.add(sender_account)
         db.add(receiver_account)
         db.commit()
+        
+        user = UserRepository.get_by_id(db, current_user_id)
+
+        if user:
+            send_email(
+        subject="Transaction Alert",
+        body=f"Your {transaction.transaction_type} of ₹{transaction.amount} was successful. Ref: {transaction.reference}",
+        to_email=user.email
+    )
+
         db.refresh(sender_account)
         db.refresh(receiver_account)
 
@@ -107,6 +117,15 @@ class TransactionService:
 
         db.add(account)
         db.commit()
+        user = UserRepository.get_by_id(db, current_user_id)
+
+        if user:
+            send_email(
+        subject="Transaction Alert",
+        body=f"Your {transaction.transaction_type} of amount {transaction.amount} was successful. Ref: {transaction.reference}",
+        to_email=user.email
+        )
+
         db.refresh(account)
 
         return {
@@ -157,6 +176,14 @@ class TransactionService:
 
         db.add(account)
         db.commit()
+        user = UserRepository.get_by_id(db, current_user_id)
+
+        if user:
+            send_email(
+        subject="Transaction Alert",
+        body=f"Your {transaction.transaction_type} of ₹{transaction.amount} was successful. Ref: {transaction.reference}",
+        to_email=user.email
+    )
         db.refresh(account)
 
         return {

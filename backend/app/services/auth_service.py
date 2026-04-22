@@ -5,6 +5,7 @@ from app.repositories.user_repository import UserRepository
 from app.repositories.account_repository import AccountRepository
 from app.core.security import hash_password, verify_password, create_access_token
 from app.utils.helpers import generate_account_number
+from app.core.email import send_email
 
 
 class AuthService:
@@ -31,6 +32,12 @@ class AuthService:
             account_number=account_number,
             balance=0.00,
             currency="INR"
+        )
+        
+        send_email(
+            subject="Welcome to Digital Banking",
+            body=f"Hi {user.full_name}, your account has been created successfully.",
+            to_email=user.email
         )
 
         return user

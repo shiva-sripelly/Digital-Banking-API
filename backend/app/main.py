@@ -7,10 +7,13 @@ from app.models import user, account, transaction
 from app.api.routes.auth import router as auth_router
 from app.api.routes.account import router as account_router
 from app.api.routes.transaction import router as transaction_router
+from app.api.routes.ai import router as ai_router
+from app.api.routes.payments import router as payments_router
+from app.api.routes.ws_chat import router as ws_router
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Digital Banking API")
+app = FastAPI(title="Advanced Digital Banking API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,8 +26,11 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(account_router)
 app.include_router(transaction_router)
+app.include_router(ai_router)
+app.include_router(payments_router)
+app.include_router(ws_router)
 
 
 @app.get("/")
 def root():
-    return {"message": "Digital Banking API is running"}
+    return {"message": "Advanced Digital Banking API is running"}

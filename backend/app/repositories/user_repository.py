@@ -18,7 +18,8 @@ class UserRepository:
         db.commit()
         db.refresh(user)
         return user
-
+    
+    
     @staticmethod
     def get_by_id(db: Session, user_id: int):
         return db.query(User).filter(User.id == user_id).first()

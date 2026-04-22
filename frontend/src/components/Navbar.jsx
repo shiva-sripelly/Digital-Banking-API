@@ -37,13 +37,13 @@ export default function Navbar() {
             <Link to="/history" className="text-slate-600 hover:text-indigo-600 font-medium">
               History
             </Link>
+        <Link to="/payments" className="text-slate-600 hover:text-indigo-600 font-medium">Payments</Link>
+        <Link to="/ai-chat" className="text-slate-600 hover:text-indigo-600 font-medium">AI Chat</Link>
 
-            <button
-              onClick={handleLogout}
-              className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2 rounded-xl font-semibold shadow-md hover:scale-105 transition"
-            >
+        <button onClick={handleLogout} className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2 rounded-xl font-semibold shadow-md hover:scale-105 transition">
               Logout
             </button>
+
           </nav>
         )}
       </div>
