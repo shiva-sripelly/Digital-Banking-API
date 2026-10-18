@@ -1,10 +1,13 @@
-from sqlalchemy import Column, Integer, String, Numeric, ForeignKey, DateTime
+from sqlalchemy import CheckConstraint, Column, Integer, String, Numeric, ForeignKey, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
 
 
 class Account(Base):
     __tablename__ = "accounts"
+    __table_args__ = (
+        CheckConstraint("balance >= 0", name="ck_accounts_balance_non_negative"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)

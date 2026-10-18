@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../api/axios";
 import { useNavigate } from "react-router-dom";
+import { PageHeader } from "../components/banking";
 
 const initialQuickActions = [
   "What is my balance?",
@@ -19,9 +20,9 @@ function getCurrentTime() {
 function TypingDots() {
   return (
     <div className="flex items-center gap-1">
-      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-      <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+      <span className="w-2 h-2 bg-plum-300 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+      <span className="w-2 h-2 bg-plum-300 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+      <span className="w-2 h-2 bg-plum-300 rounded-full animate-bounce"></span>
     </div>
   );
 }
@@ -99,7 +100,7 @@ function TransactionTypeBadge({ type }) {
       ? "bg-emerald-100 text-emerald-700"
       : lower === "withdraw"
       ? "bg-rose-100 text-rose-700"
-      : "bg-indigo-100 text-indigo-700";
+      : "bg-plum-100 text-plum-800";
 
   return (
     <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${styles}`}>
@@ -110,7 +111,7 @@ function TransactionTypeBadge({ type }) {
 
 function TransactionCard({ txn }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+    <div className="bg-white border border-milk-300 rounded-2xl p-4 shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <TransactionTypeBadge type={txn.type} />
 
@@ -125,7 +126,7 @@ function TransactionCard({ txn }) {
         </span>
       </div>
 
-      <div className="grid gap-2 text-sm text-slate-700">
+      <div className="grid gap-2 text-sm text-plum-800">
         <p>
           <span className="font-medium">Amount:</span> ₹ {Number(txn.amount).toFixed(2)}
         </p>
@@ -139,10 +140,10 @@ function TransactionCard({ txn }) {
 
 function BalanceCard({ amount }) {
   return (
-    <div className="rounded-3xl p-5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg">
-      <p className="text-emerald-100 text-sm font-medium mb-2">Current Balance</p>
+    <div className="rounded-3xl p-5 bg-linear-to-br from-plum-700 to-plum-900 text-milk-100 shadow-lg">
+      <p className="text-plum-200 text-sm font-medium mb-2">Current Balance</p>
       <p className="text-3xl font-bold">₹ {amount.toFixed(2)}</p>
-      <p className="text-emerald-100 text-sm mt-2">Available account balance</p>
+      <p className="text-plum-200 text-sm mt-2">Available account balance</p>
     </div>
   );
 }
@@ -164,7 +165,7 @@ function AIMessageRenderer({ text }) {
   if (transactions.length > 1) {
     return (
       <div className="space-y-3">
-        <p className="font-semibold text-slate-800">Here are your recent transactions:</p>
+        <p className="font-semibold text-plum-900">Here are your recent transactions:</p>
         {transactions.map((txn, index) => (
           <TransactionCard key={index} txn={txn} />
         ))}
@@ -180,7 +181,7 @@ function AIMessageRenderer({ text }) {
   ) {
     return (
       <div className="space-y-3">
-        <p className="font-semibold text-slate-800">Here is your last transfer:</p>
+        <p className="font-semibold text-plum-900">Here is your last transfer:</p>
         <TransactionCard txn={singleTransfer} />
       </div>
     );
@@ -211,7 +212,10 @@ export default function AIChat() {
   const nextIdRef = useRef(2);
 
   useEffect(() => {
-    socketRef.current = new WebSocket("ws://127.0.0.1:8000/ws/chat");
+    // Same host as the API so the session cookie is sent with the handshake
+    const wsUrl = new URL("/ws/chat", import.meta.env.VITE_API_BASE_URL || window.location.origin);
+    wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
+    socketRef.current = new WebSocket(wsUrl);
 
     return () => {
       if (socketRef.current) socketRef.current.close();
@@ -270,7 +274,7 @@ export default function AIChat() {
       });
 
       addBotFollowUp();
-    } catch (err) {
+    } catch {
       addMessage({
         sender: "ai",
         text: "Sorry, I couldn't process your request right now. Please try again.",
@@ -353,9 +357,9 @@ if (option === "My last transfer" || option === "Last Transfer 🔁") {
 if (option === "Deposit Help") {
   addMessage({
     sender: "bot",
-    text: "To deposit money, go to Deposit section and enter a valid amount greater than 0.",
+    text: "To add money, open Add Money and pay with a Stripe test card (4242 4242 4242 4242).",
     time: getCurrentTime(),
-    suggestions: ["Go to Deposit", "Check Balance"],
+    suggestions: ["Go to Add Money", "Check Balance"],
   });
   return;
 }
@@ -370,8 +374,8 @@ if (option === "Withdraw Help") {
   return;
 }
 
-if (option === "Go to Deposit") {
-  navigate("/deposit");
+if (option === "Go to Add Money") {
+  navigate("/payments");
   return;
 }
 
@@ -398,41 +402,38 @@ if (option === "Go to Withdraw") {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <h2 className="text-4xl font-bold text-slate-900 mb-6">
-        AI Banking Assistant
-      </h2>
+    <div className="max-w-5xl mx-auto">
+      <PageHeader title="AI Banking Assistant" description="Ask about your balance, transactions, deposits and transfers." />
 
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+      <div className="card overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 bg-primary">
           <div>
-            <p className="text-lg font-semibold text-slate-800">Support Chat</p>
-            <p className="text-sm text-slate-500">Online • Usually replies instantly</p>
+            <p className="text-lg font-semibold text-milk-100">Support Chat</p>
+            <p className="text-sm text-plum-200">Online • Usually replies instantly</p>
           </div>
 
           <button
             onClick={clearChat}
-            className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-medium hover:bg-slate-100"
+            className="btn-secondary whitespace-nowrap shrink-0 min-h-10 px-3 sm:px-4"
           >
             Clear Chat
           </button>
         </div>
 
-        <div className="h-[520px] overflow-y-auto p-5 bg-gradient-to-b from-slate-50 to-white space-y-4">
+        <div className="h-[calc(100dvh-22rem)] min-h-[360px] overflow-y-auto p-4 sm:p-5 bg-surface-secondary/50 space-y-4" aria-live="polite">
           {messages.map((msg) => {
             const isUser = msg.sender === "me";
             const isAI = msg.sender === "ai";
-            const isBot = msg.sender === "bot";
 
             return (
               <div key={msg.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
                 <div className={`max-w-[82%] ${isUser ? "items-end" : "items-start"} flex flex-col`}>
                   {!isUser && (
                     <div className="flex items-center gap-2 mb-1 ml-1">
-                      <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold">
+                      <div className="w-8 h-8 rounded-full bg-plum-900 text-milk-100 flex items-center justify-center text-sm font-bold">
                         ₹
                       </div>
-                      <span className="text-xs text-slate-500 font-medium">
+                      <span className="text-xs text-plum-500 font-medium">
                         {isAI ? "AI Assistant" : "Support Bot"}
                       </span>
                     </div>
@@ -441,10 +442,10 @@ if (option === "Go to Withdraw") {
                   <div
                     className={`px-5 py-4 rounded-3xl shadow-sm ${
                       isUser
-                        ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-br-md"
+                        ? "bg-plum-900 text-milk-100 rounded-br-md"
                         : isAI
-                        ? "bg-slate-200 text-slate-900 rounded-bl-md"
-                        : "bg-slate-100 text-slate-800 rounded-bl-md"
+                        ? "bg-milk-200 text-plum-900 rounded-bl-md"
+                        : "bg-white border border-milk-300 text-plum-800 rounded-bl-md"
                     }`}
                   >
                     {isAI ? (
@@ -456,7 +457,7 @@ if (option === "Go to Withdraw") {
                     )}
                   </div>
 
-                  <span className="text-xs text-slate-400 mt-1 px-2">
+                  <span className="text-xs text-plum-300 mt-1 px-2">
                     {msg.time}
                   </span>
 
@@ -466,7 +467,7 @@ if (option === "Go to Withdraw") {
                         <button
                           key={index}
                           onClick={() => handleSuggestionClick(option)}
-                          className="bg-white border border-indigo-200 text-indigo-700 px-4 py-2 rounded-full text-sm font-medium hover:bg-indigo-50"
+                          className="bg-white border border-plum-200 text-plum-800 px-4 py-2 rounded-full text-sm font-medium transition hover:bg-plum-50"
                         >
                           {option}
                         </button>
@@ -482,13 +483,13 @@ if (option === "Go to Withdraw") {
             <div className="flex justify-start">
               <div className="max-w-[82%] flex flex-col items-start">
                 <div className="flex items-center gap-2 mb-1 ml-1">
-                  <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold">
+                  <div className="w-8 h-8 rounded-full bg-plum-900 text-milk-100 flex items-center justify-center text-sm font-bold">
                     ₹
                   </div>
-                  <span className="text-xs text-slate-500 font-medium">AI Assistant</span>
+                  <span className="text-xs text-plum-500 font-medium">AI Assistant</span>
                 </div>
 
-                <div className="px-5 py-4 rounded-3xl rounded-bl-md bg-slate-100">
+                <div className="px-5 py-4 rounded-3xl rounded-bl-md bg-milk-200">
                   <TypingDots />
                 </div>
               </div>
@@ -498,10 +499,11 @@ if (option === "Go to Withdraw") {
           <div ref={messagesEndRef}></div>
         </div>
 
-        <div className="border-t border-slate-200 p-4 bg-white">
+        <div className="border-t border-border p-3 sm:p-4 bg-surface">
           <div className="flex gap-3">
             <input
-              className="flex-1 border border-slate-300 rounded-2xl px-5 py-4 text-lg outline-none focus:ring-2 focus:ring-indigo-400"
+              aria-label="Message the AI assistant"
+              className="input-field flex-1 min-w-0 rounded-2xl"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -512,7 +514,8 @@ if (option === "Go to Withdraw") {
 
             <button
               onClick={() => sendQuery()}
-              className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-8 py-4 rounded-2xl font-semibold shadow-md hover:scale-[1.02] transition"
+              disabled={loading}
+              className="btn-primary px-5 sm:px-8 rounded-2xl"
             >
               Send
             </button>

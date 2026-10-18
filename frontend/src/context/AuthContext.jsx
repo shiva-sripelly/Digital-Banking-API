@@ -1,11 +1,29 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import api from "../api/axios";
+import { setCsrfToken } from "../api/session";
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const applySession = (data) => {
+    setCsrfToken("customer", data?.csrf_token);
+    setUser(data?.user || null);
+  };
+
+  // The session is an HttpOnly cookie; ask the server whether it's valid
+  const fetchSession = useCallback(async () => {
+    try {
+      const response = await api.get("/auth/session");
+      applySession(response.data);
+    } catch {
+      applySession(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const login = async (email, password) => {
     const formData = new URLSearchParams();
@@ -17,9 +35,7 @@ export function AuthProvider({ children }) {
         "Content-Type": "application/x-www-form-urlencoded",
       },
     });
-
-    localStorage.setItem("token", response.data.access_token);
-    await fetchMe();
+    applySession(response.data);
     return response.data;
   };
 
@@ -32,30 +48,34 @@ export function AuthProvider({ children }) {
     return response.data;
   };
 
-  const fetchMe = async () => {
+  const logout = async () => {
     try {
-      const response = await api.get("/auth/me");
-      setUser(response.data);
-    } catch (error) {
-      setUser(null);
-      localStorage.removeItem("token");
-    } finally {
-      setLoading(false);
+      await api.post("/auth/logout");
+    } catch {
+      // The session may already be gone; clear local state regardless
     }
+    applySession(null);
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    setUser(null);
-  };
-
+  // Initial check; state is only set in the async callbacks
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      fetchMe();
-    } else {
-      setLoading(false);
-    }
+    let cancelled = false;
+    api
+      .get("/auth/session")
+      .then((response) => {
+        if (cancelled) return;
+        setCsrfToken("customer", response.data?.csrf_token);
+        setUser(response.data?.user || null);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -66,7 +86,7 @@ export function AuthProvider({ children }) {
         login,
         register,
         logout,
-        fetchMe,
+        fetchSession,
       }}
     >
       {children}
@@ -74,6 +94,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   return useContext(AuthContext);
 }

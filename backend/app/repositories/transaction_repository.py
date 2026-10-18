@@ -11,7 +11,8 @@ class TransactionRepository:
         amount,
         transaction_type: str,
         reference: str,
-        status: str = "success"
+        status: str = "success",
+        idempotency_key: str | None = None
     ):
         transaction = Transaction(
             sender_account_id=sender_account_id,
@@ -19,7 +20,8 @@ class TransactionRepository:
             amount=amount,
             transaction_type=transaction_type,
             reference=reference,
-            status=status
+            status=status,
+            idempotency_key=idempotency_key
         )
         db.add(transaction)
         db.flush()
@@ -41,6 +43,10 @@ class TransactionRepository:
     @staticmethod
     def get_by_reference(db: Session, reference: str):
         return db.query(Transaction).filter(Transaction.reference == reference).first()
+
+    @staticmethod
+    def get_by_idempotency_key(db: Session, idempotency_key: str):
+        return db.query(Transaction).filter(Transaction.idempotency_key == idempotency_key).first()
 
     @staticmethod
     def get_by_id(db: Session, transaction_id: int):

@@ -1,91 +1,149 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import api from "../api/axios";
-
-function getErrorMessage(err) {
-  const detail = err?.response?.data?.detail;
-
-  if (Array.isArray(detail)) {
-    return detail.map((item) => item.msg).join(", ");
-  }
-
-  if (typeof detail === "string") {
-    return detail;
-  }
-
-  return "Withdraw failed";
-}
+import { newIdempotencyKey } from "../api/session";
+import useApi from "../hooks/useApi";
+import { useToast } from "../context/ToastContext";
+import {
+  AmountInput,
+  BalanceSummary,
+  PageHeader,
+  ReceiptCard,
+  SummaryRows
+} from "../components/banking";
+import Button from "../components/ui/Button";
+import { Alert } from "../components/ui/Feedback";
+import { ConfirmDialog } from "../components/ui/Modal";
+import { getErrorMessage } from "../utils/errors";
+import { validateAmount } from "../utils/validation";
+import { formatCurrency } from "../utils/format";
 
 export default function Withdraw() {
+  const { notify } = useToast();
+  const account = useApi("/accounts/me");
+
   const [amount, setAmount] = useState("");
-  const [message, setMessage] = useState("");
+  const [fieldError, setFieldError] = useState("");
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const inFlight = useRef(false);
+  // Reused if this exact submission is retried, so money can't move twice
+  const requestKey = useRef(null);
 
-  const handleSubmit = async (e) => {
+  const handleReview = (e) => {
     e.preventDefault();
-    setMessage("");
     setError("");
+    const amountError = validateAmount(amount, { max: account.data?.balance });
+    setFieldError(amountError);
+    if (!amountError) setConfirming(true);
+  };
 
-    const numericAmount = Number(amount);
-
-    if (!amount || Number.isNaN(numericAmount) || numericAmount <= 0) {
-      setError("Please enter a valid amount greater than 0.");
-      return;
-    }
+  const handleConfirm = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    requestKey.current = requestKey.current || newIdempotencyKey();
+    setSubmitting(true);
 
     try {
-      const response = await api.post("/transactions/withdraw", {
-        amount: numericAmount,
-      });
-
-      setMessage(
-        `Withdraw successful. Ref: ${response.data.reference}. New Balance: ₹ ${Number(
-          response.data.balance
-        ).toFixed(2)}`
+      const response = await api.post(
+        "/transactions/withdraw",
+        { amount: Number(amount) },
+        { headers: { "Idempotency-Key": requestKey.current } }
       );
+      requestKey.current = null;
+      setReceipt(response.data);
       setAmount("");
+      notify("Withdrawal successful");
+      account.reload();
     } catch (err) {
-      setError(getErrorMessage(err));
+      setError(getErrorMessage(err, "Withdraw failed"));
+      // Keep the key only when the outcome is unknown (no response), so a retry
+      // can't duplicate a transfer that actually went through
+      if (err?.response) requestKey.current = null;
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
+      setConfirming(false);
     }
   };
 
+  if (receipt) {
+    return (
+      <div className="max-w-xl mx-auto">
+        <ReceiptCard
+          title="Withdrawal successful"
+          rows={[
+            ["Amount", formatCurrency(receipt.amount)],
+            ["New balance", formatCurrency(receipt.balance)],
+            ["Account", receipt.account_number],
+            ["Reference", <span key="r" className="font-mono text-sm">{receipt.reference}</span>],
+          ]}
+          actions={
+            <>
+              <Button variant="secondary" to="/history">
+                View transactions
+              </Button>
+              <Button onClick={() => setReceipt(null)}>Make another withdrawal</Button>
+            </>
+          }
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <h2 className="text-3xl font-bold text-blue-700 mb-6">Withdraw Funds</h2>
+    <div className="max-w-xl mx-auto">
+      <PageHeader title="Withdraw Funds" description="Withdraw money from your account." />
 
-      <div className="bg-white shadow-lg rounded-2xl p-6 border">
-        {message && (
-          <div className="bg-green-100 text-green-700 p-3 rounded-lg mb-4">
-            {message}
-          </div>
+      <div className="card p-6 sm:p-8 space-y-6">
+        <BalanceSummary account={account.data} loading={account.loading} />
+
+        {account.error && (
+          <Alert type="error" onRetry={account.reload}>
+            Failed to load your balance
+          </Alert>
         )}
+        {error && <Alert type="error">{error}</Alert>}
 
-        {error && (
-          <div className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="number"
-            name="amount"
-            placeholder="Enter withdraw amount"
+        <form onSubmit={handleReview} className="space-y-5" noValidate>
+          <AmountInput
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="w-full border rounded-lg px-4 py-3"
-            min="1"
-            step="0.01"
+            onChange={(e) => {
+              setAmount(e.target.value);
+              setFieldError("");
+            }}
+            error={fieldError}
+            quickAmounts={[500, 1000, 2000, 5000]}
+            onQuickAmount={(value) => {
+              setAmount(value);
+              setFieldError("");
+            }}
             required
           />
 
-          <button
-            type="submit"
-            className="w-full bg-gradient-to-r from-rose-500 to-pink-500 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition"
-          >
-            Withdraw
-          </button>
+          <Button type="submit" className="w-full" disabled={account.loading || !account.data}>
+            Review withdrawal
+          </Button>
         </form>
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        title="Confirm withdrawal"
+        confirmText={`Withdraw ${formatCurrency(amount)}`}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirming(false)}
+        loading={submitting}
+      >
+        <SummaryRows
+          rows={[
+            ["Account", account.data?.account_number],
+            ["Amount", formatCurrency(amount)],
+            ["Balance after", formatCurrency(Number(account.data?.balance || 0) - Number(amount || 0))],
+          ]}
+        />
+      </ConfirmDialog>
     </div>
   );
 }

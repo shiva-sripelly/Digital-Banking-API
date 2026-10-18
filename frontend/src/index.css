@@ -1,1 +1,126 @@
 @import "tailwindcss";
+
+/* Design tokens: Deep Plum + Milk */
+:root {
+  --primary: #381932;
+  --primary-hover: #512345;
+  --primary-light: #6a3a5c;
+
+  --background: #fff3e6;
+  --surface: #ffffff;
+  --surface-secondary: #faf0e8;
+
+  --accent: #ebd6de;
+  --border: #e8d9d8;
+
+  --text-primary: #381932;
+  --text-secondary: #70646d;
+  /* Muted text is ~3.5:1 on milk: use only for placeholders, icons and large text */
+  --text-muted: #8b8087;
+
+  --success: #16794a;
+  --danger: #b42332;
+  --warning: #a45b10;
+}
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-light: var(--primary-light);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-ink: var(--text-primary);
+  --color-ink-secondary: var(--text-secondary);
+  --color-ink-muted: var(--text-muted);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+
+  /* Supporting plum + milk shades for gradients and illustrations */
+  --color-plum-50: #f9f1f6;
+  --color-plum-100: #f0dfe9;
+  --color-plum-200: #e0bfd3;
+  --color-plum-300: #c793b2;
+  --color-plum-400: #a5688d;
+  --color-plum-500: #84496d;
+  --color-plum-600: #683757;
+  --color-plum-700: #532a46;
+  --color-plum-800: #45213b;
+  --color-plum-900: #381932;
+  --color-plum-950: #220e1e;
+
+  --color-milk-50: #fffaf4;
+  --color-milk-100: #fff3e6;
+  --color-milk-200: #f7e5d1;
+  --color-milk-300: #ebd2b8;
+
+  --animate-toast-in: toast-in 0.2s ease-out;
+  --animate-fade-in: fade-in 0.15s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-ink font-sans antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary-light;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-border rounded-2xl shadow-sm shadow-primary/5;
+  }
+
+  .page-title {
+    @apply text-2xl sm:text-3xl font-bold tracking-tight text-ink;
+  }
+
+  .input-field {
+    @apply w-full min-h-12 bg-surface border border-border rounded-xl px-4 py-3 text-ink placeholder:text-ink-muted outline-none transition focus:border-primary-light focus:ring-4 focus:ring-accent disabled:bg-surface-secondary disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 min-h-12 bg-primary text-milk-100 px-5 py-3 rounded-xl font-semibold shadow-md shadow-primary/20 transition hover:bg-primary-hover active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 min-h-11 bg-surface border border-border text-ink px-4 py-2 rounded-xl font-semibold transition hover:bg-surface-secondary hover:border-plum-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .link {
+    @apply text-primary font-semibold underline-offset-4 hover:text-primary-light hover:underline;
+  }
+
+  .alert-error {
+    @apply flex items-start gap-2 bg-red-50 text-danger border border-red-200 p-3 rounded-xl;
+  }
+
+  .alert-success {
+    @apply flex items-start gap-2 bg-green-50 text-success border border-green-200 p-3 rounded-xl;
+  }
+
+  .alert-info {
+    @apply flex items-start gap-2 bg-surface-secondary text-ink border border-border p-3 rounded-xl;
+  }
+}

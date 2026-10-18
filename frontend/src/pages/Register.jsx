@@ -1,9 +1,34 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import AuthLayout from "../components/AuthLayout";
+import Button from "../components/ui/Button";
+import { Input, PasswordInput } from "../components/ui/Field";
+import { Alert } from "../components/ui/Feedback";
+import { useToast } from "../context/ToastContext";
+import { getErrorMessage, getFieldErrors } from "../utils/errors";
+
+const EMAIL_PATTERN = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
+// Letters only (any language), single spaces between words
+const NAME_PATTERN = /^\p{L}+( \p{L}+)*$/u;
+
+// Mirrors the backend UserRegister schema
+function validate(form) {
+  const errors = {};
+  if (form.full_name.trim().length < 2) errors.full_name = "Full name must be at least 2 characters";
+  else if (!NAME_PATTERN.test(form.full_name.trim())) errors.full_name = "Full name can contain only letters and spaces";
+  if (form.full_name.trim().length > 100) errors.full_name = "Full name must be at most 100 characters";
+  if (!EMAIL_PATTERN.test(form.email.trim())) errors.email = "Enter a valid email address (e.g. name@example.com)";
+  if (form.password.length < 8) errors.password = "Password must be at least 8 characters";
+  else if (!/[A-Za-z]/.test(form.password) || !/\d/.test(form.password))
+    errors.password = "Password must contain at least one letter and one number";
+  if (form.password.length > 72) errors.password = "Password must be at most 72 characters";
+  return errors;
+}
 
 export default function Register() {
   const { register } = useAuth();
+  const { notify } = useToast();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
@@ -12,89 +37,100 @@ export default function Register() {
     password: "",
   });
 
+  const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+    if (fieldErrors[e.target.name]) {
+      setFieldErrors({ ...fieldErrors, [e.target.name]: undefined });
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
+
+    const errors = validate(form);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setLoading(true);
 
     try {
-      await register(form.full_name, form.email, form.password);
-      setSuccess("Registration successful. Please login.");
-      setTimeout(() => navigate("/login"), 1000);
+      const result = await register(form.full_name.trim(), form.email.trim(), form.password);
+      notify("Check your email for a 6-digit verification code.", "info");
+      navigate("/verify-email", {
+        replace: true,
+        state: {
+          email: result.email,
+          expiresIn: result.code_expires_in,
+          resendIn: result.resend_available_in,
+        },
+      });
     } catch (err) {
-      setError(err?.response?.data?.detail || "Registration failed");
+      const serverFieldErrors = getFieldErrors(err);
+      if (Object.keys(serverFieldErrors).length > 0) {
+        setFieldErrors(serverFieldErrors);
+      } else {
+        setError(getErrorMessage(err, "Registration failed"));
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-indigo-50 to-violet-100 px-4">
-      <div className="w-full max-w-md bg-white shadow-2xl rounded-3xl p-8 border border-slate-200">
-        <h2 className="text-3xl font-bold text-center bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent mb-2">
+    <AuthLayout
+      title="Create Account"
+      subtitle="Open your digital banking account in minutes"
+      switchPrompt={{ text: "Already have an account?", label: "Login", to: "/login" }}
+    >
+      {error && <Alert type="error" className="mb-5">{error}</Alert>}
+
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Input
+          label="Full name"
+          name="full_name"
+          icon="user"
+          placeholder="Enter your full name"
+          value={form.full_name}
+          onChange={handleChange}
+          autoComplete="name"
+          error={fieldErrors.full_name}
+          required
+        />
+
+        <Input
+          label="Email address"
+          type="email"
+          name="email"
+          icon="mail"
+          placeholder="Enter your email address"
+          value={form.email}
+          onChange={handleChange}
+          autoComplete="email"
+          error={fieldErrors.email}
+          required
+        />
+
+        <PasswordInput
+          label="Password"
+          name="password"
+          placeholder="Create a password"
+          value={form.password}
+          onChange={handleChange}
+          autoComplete="new-password"
+          hint="8–72 characters, with a letter and a number"
+          error={fieldErrors.password}
+          required
+        />
+
+        <Button type="submit" loading={loading} loadingText="Creating account..." className="w-full">
           Create Account
-        </h2>
-        <p className="text-center text-slate-500 mb-6">Open your digital banking account</p>
-
-        {error && (
-          <div className="bg-red-100 text-red-700 p-3 rounded-xl mb-4">{error}</div>
-        )}
-
-        {success && (
-          <div className="bg-green-100 text-green-700 p-3 rounded-xl mb-4">{success}</div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="text"
-            name="full_name"
-            placeholder="Enter full name"
-            value={form.full_name}
-            onChange={handleChange}
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400"
-            required
-          />
-
-          <input
-            type="email"
-            name="email"
-            placeholder="Enter email"
-            value={form.email}
-            onChange={handleChange}
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400"
-            required
-          />
-
-          <input
-            type="password"
-            name="password"
-            placeholder="Enter password"
-            value={form.password}
-            onChange={handleChange}
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400"
-            required
-          />
-
-          <button
-            type="submit"
-            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition"
-          >
-            Register
-          </button>
-        </form>
-
-        <p className="text-center mt-5 text-sm text-slate-600">
-          Already have an account?{" "}
-          <Link to="/login" className="text-indigo-600 font-semibold">
-            Login
-          </Link>
-        </p>
-      </div>
-    </div>
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

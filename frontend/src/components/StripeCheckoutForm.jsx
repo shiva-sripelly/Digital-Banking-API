@@ -1,24 +1,29 @@
 import { useState } from "react";
 import { PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import Button from "./ui/Button";
+import { Alert } from "./ui/Feedback";
+import { formatCurrency } from "../utils/format";
 
-export default function StripeCheckoutForm({ amount, clientSecret }) {
+/**
+ * Collects card details and confirms the PaymentIntent with Stripe. It never
+ * credits the wallet: the parent waits for the server, which only credits
+ * after Stripe itself reports success (webhook or server-side check).
+ */
+export default function StripeCheckoutForm({ amount, onSubmitted, onCancel }) {
   const stripe = useStripe();
   const elements = useElements();
 
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!stripe || !elements) {
-      return;
-    }
+    if (!stripe || !elements || loading) return;
 
     setLoading(true);
-    setMessage("");
+    setError("");
 
-    const { error, paymentIntent } = await stripe.confirmPayment({
+    const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: window.location.origin + "/payments",
@@ -26,40 +31,31 @@ export default function StripeCheckoutForm({ amount, clientSecret }) {
       redirect: "if_required",
     });
 
-    if (error) {
-      setMessage(error.message || "Payment failed");
-    } else if (paymentIntent) {
-      if (paymentIntent.status === "succeeded") {
-        setMessage(`Payment successful. PaymentIntent ID: ${paymentIntent.id}`);
-      } else {
-        setMessage(`Payment status: ${paymentIntent.status}`);
-      }
-    } else {
-      setMessage("Payment processing started");
+    if (stripeError) {
+      setError(stripeError.message || "Payment failed");
+      setLoading(false);
+      return;
     }
 
-    setLoading(false);
+    onSubmitted(paymentIntent);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="border border-slate-300 rounded-xl p-4 bg-white">
+      <div className="border border-border rounded-xl p-4 bg-surface">
         <PaymentElement />
       </div>
 
-      <button
-        type="submit"
-        disabled={!stripe || !elements || loading || !clientSecret}
-        className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? "Processing..." : `Pay ₹ ${Number(amount || 0).toFixed(2)}`}
-      </button>
+      {error && <Alert type="error">{error}</Alert>}
 
-      {message && (
-        <div className="bg-slate-100 text-slate-700 rounded-xl p-3">
-          {message}
-        </div>
-      )}
+      <div className="flex flex-col-reverse sm:flex-row gap-3">
+        <Button variant="secondary" onClick={onCancel} disabled={loading} className="sm:w-40">
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!stripe || !elements} loading={loading} loadingText="Processing..." className="flex-1">
+          Pay {formatCurrency(amount)}
+        </Button>
+      </div>
     </form>
   );
 }

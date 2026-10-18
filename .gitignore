@@ -21,3 +21,9 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+# Database backups and local databases (may contain real user data)
+*.dump
+*.sql.gz
+*.db
+db-backups/
+backend/.pytest_cache/

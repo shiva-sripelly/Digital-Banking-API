@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import AuthLayout from "../components/AuthLayout";
+import Button from "../components/ui/Button";
+import { Input, PasswordInput } from "../components/ui/Field";
+import { Alert } from "../components/ui/Feedback";
+import { getErrorCode, getErrorMessage } from "../utils/errors";
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Return to the protected page the user originally asked for, if any
+  const redirectTo = location.state?.from?.pathname || "/dashboard";
 
   const [form, setForm] = useState({
     email: "",
@@ -12,6 +20,8 @@ export default function Login() {
   });
 
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -20,63 +30,81 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setErrorCode("");
+    setLoading(true);
 
     try {
       await login(form.email, form.password);
-      navigate("/");
+      navigate(redirectTo, { replace: true });
     } catch (err) {
-      setError(err?.response?.data?.detail || "Login failed");
+      setError(getErrorMessage(err, "Login failed"));
+      setErrorCode(getErrorCode(err) || "");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-indigo-50 to-violet-100 px-4">
-      <div className="w-full max-w-md bg-white shadow-2xl rounded-3xl p-8 border border-slate-200">
-        <h2 className="text-3xl font-bold text-center bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent mb-2">
-          Welcome Back
-        </h2>
-        <p className="text-center text-slate-500 mb-6">Login to your banking account</p>
+    <AuthLayout
+      title="Welcome Back"
+      subtitle="Login to your banking account"
+      switchPrompt={{ text: "Don't have an account?", label: "Register", to: "/register" }}
+    >
+      {error && (
+        <Alert type="error" className="mb-5">
+          {error}
+          {errorCode === "email_not_verified" && (
+            <Link
+              to="/verify-email"
+              state={{ email: form.email.trim().toLowerCase() }}
+              className="block mt-2 font-semibold underline underline-offset-2"
+            >
+              Verify my email
+            </Link>
+          )}
+          {errorCode === "use_admin_portal" && (
+            <Link to="/admin/login" className="block mt-2 font-semibold underline underline-offset-2">
+              Go to the admin portal
+            </Link>
+          )}
+        </Alert>
+      )}
 
-        {error && (
-          <div className="bg-red-100 text-red-700 p-3 rounded-xl mb-4">{error}</div>
-        )}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input
+          label="Email address"
+          hideLabel
+          type="email"
+          name="email"
+          icon="mail"
+          placeholder="Enter your email address"
+          value={form.email}
+          onChange={handleChange}
+          autoComplete="email"
+          required
+        />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email"
-            name="email"
-            placeholder="Enter email"
-            value={form.email}
-            onChange={handleChange}
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400"
-            required
-          />
+        <PasswordInput
+          label="Password"
+          hideLabel
+          name="password"
+          placeholder="Enter your password"
+          value={form.password}
+          onChange={handleChange}
+          autoComplete="current-password"
+          required
+        />
 
-          <input
-            type="password"
-            name="password"
-            placeholder="Enter password"
-            value={form.password}
-            onChange={handleChange}
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400"
-            required
-          />
-
-          <button
-            type="submit"
-            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-3 rounded-xl font-semibold shadow-md hover:scale-[1.02] transition"
-          >
-            Login
-          </button>
-        </form>
-
-        <p className="text-center mt-5 text-sm text-slate-600">
-          Don&apos;t have an account?{" "}
-          <Link to="/register" className="text-indigo-600 font-semibold">
-            Register
+        <div className="flex justify-end">
+          <Link to="/forgot-password" className="link text-sm">
+            Forgot password?
           </Link>
-        </p>
-      </div>
-    </div>
+        </div>
+
+        <Button type="submit" loading={loading} loadingText="Logging in..." className="w-full">
+          Login
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }
