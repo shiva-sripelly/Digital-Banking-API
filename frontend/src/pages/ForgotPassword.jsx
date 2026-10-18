@@ -4,6 +4,7 @@ import api from "../api/axios";
 import AuthLayout from "../components/AuthLayout";
 import Button from "../components/ui/Button";
 import { Input, PasswordInput } from "../components/ui/Field";
+import OtpInput from "../components/ui/OtpInput";
 import { Alert } from "../components/ui/Feedback";
 import { useToast } from "../context/ToastContext";
 import { getErrorMessage } from "../utils/errors";
@@ -123,17 +124,11 @@ export default function ForgotPassword() {
 
       {step === "reset" && (
         <form onSubmit={resetPassword} className="space-y-4">
-          <Input
+          <OtpInput
             label="Reset code"
-            name="code"
-            icon="key"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="6-digit code"
             value={form.code}
-            onChange={handleChange}
-            className="[&_input]:tracking-[0.4em] [&_input]:font-semibold"
-            required
+            onChange={(next) => setForm((f) => ({ ...f, code: next }))}
+            error={Boolean(error)}
           />
 
           <PasswordInput

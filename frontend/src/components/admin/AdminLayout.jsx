@@ -6,10 +6,14 @@ import Dropdown, { menuItemClass } from "../ui/Dropdown";
 import Icon from "../ui/Icon";
 import Logo from "../ui/Logo";
 import { adminNavItems } from "./adminNav";
+import ConfirmLogout from "../ConfirmLogout";
+import WelcomeModal from "../WelcomeModal";
 
 function AdminSidebar({ open, onClose }) {
   const { logout } = useAdminAuth();
   const navigate = useNavigate();
+
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -66,7 +70,7 @@ function AdminSidebar({ open, onClose }) {
         <div className="p-3 border-t border-white/10">
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={() => setConfirmLogout(true)}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-plum-200 hover:text-milk-100 hover:bg-white/6 transition"
           >
             <Icon name="logout" />
@@ -74,6 +78,7 @@ function AdminSidebar({ open, onClose }) {
           </button>
         </div>
       </aside>
+      <ConfirmLogout open={confirmLogout} onCancel={() => setConfirmLogout(false)} onConfirm={handleLogout} admin />
     </>
   );
 }
@@ -84,6 +89,9 @@ export default function AdminLayout({ children }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const title = adminNavItems.find((item) => location.pathname.startsWith(item.to))?.label || "Admin";
+  const closeWelcome = () => navigate(location.pathname + location.search, { replace: true, state: null });
+
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -137,7 +145,7 @@ export default function AdminLayout({ children }) {
                     <Icon name="checkCircle" className="w-3.5 h-3.5" /> MFA protected
                   </p>
                 </div>
-                <button type="button" role="menuitem" className={`${menuItemClass} text-danger`} onClick={handleLogout}>
+                <button type="button" role="menuitem" className={`${menuItemClass} text-danger`} onClick={() => setConfirmLogout(true)}>
                   <Icon name="logout" className="w-4 h-4" /> Sign out
                 </button>
               </Dropdown>
@@ -146,6 +154,8 @@ export default function AdminLayout({ children }) {
         </header>
         <main className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl mx-auto">{children}</main>
       </div>
+      <ConfirmLogout open={confirmLogout} onCancel={() => setConfirmLogout(false)} onConfirm={handleLogout} admin />
+      <WelcomeModal open={Boolean(location.state?.welcome)} onClose={closeWelcome} admin />
     </div>
   );
 }

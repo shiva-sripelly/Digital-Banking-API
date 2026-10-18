@@ -11,8 +11,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Allow an explicit override (e.g. a restored copy) via `-x db_url=...`
-db_url = context.get_x_argument(as_dictionary=True).get("db_url") or settings.DATABASE_URL
+# Allow an explicit override (e.g. a restored copy) via `-x db_url=...`.
+# Normal migrations use a dedicated schema-owner connection; the FastAPI
+# runtime connection is intentionally restricted to application DML.
+db_url = (
+    context.get_x_argument(as_dictionary=True).get("db_url")
+    or settings.MIGRATION_DATABASE_URL
+    or settings.DATABASE_URL
+)
 config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 target_metadata = Base.metadata

@@ -85,6 +85,9 @@ describe("login", () => {
     await fillAndSubmit();
 
     expect(await screen.findByText(/Good (morning|afternoon|evening), Asha/)).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Welcome back to VELQORIN!" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Let's go/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await screen.findByText("₹1,000.00")).toBeTruthy();
     expect(localStorage.length).toBe(0); // nothing stored in localStorage
     expect(getCsrfToken("customer")).toBe("csrf-customer");
@@ -119,6 +122,7 @@ describe("authenticated shell", () => {
     await screen.findByText(/Good (morning|afternoon|evening), Asha/);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Logout" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
 
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 1, name: "Banking made simple, secure and smart" })).toBeTruthy()
@@ -134,5 +138,35 @@ describe("authenticated shell", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Profile" }));
     expect(await screen.findByRole("heading", { name: "Personal details" })).toBeTruthy();
+  });
+});
+
+describe("logout confirmation", () => {
+  it("asks before logging out and can be cancelled", async () => {
+    signedIn(api);
+    api.post.mockResolvedValue({ data: { message: "Logged out" } });
+    renderApp("/dashboard");
+    await screen.findByText(/Good (morning|afternoon|evening), Asha/);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Logout" })[0]);
+    expect(await screen.findByRole("dialog", { name: "Leaving VELQORIN?" })).toBeTruthy();
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stay logged in" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByText(/Good (morning|afternoon|evening), Asha/)).toBeTruthy();
+  });
+});
+
+describe("session expiry", () => {
+  it("shows the Session Expired popup when the API reports it", async () => {
+    signedIn(api);
+    renderApp("/dashboard");
+    await screen.findByText(/Good (morning|afternoon|evening), Asha/);
+
+    window.dispatchEvent(new CustomEvent("velqorin:session-expired", { detail: { portal: "customer" } }));
+    expect(await screen.findByRole("dialog", { name: "Session Expired" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign In" })).toBeTruthy();
   });
 });

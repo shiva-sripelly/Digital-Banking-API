@@ -38,8 +38,11 @@ def _admin_user(user) -> dict:
 # --- Admin authentication -------------------------------------------------------
 
 @auth_router.post("/login")
-def admin_login(payload: AdminLoginRequest, request: Request, db: Session = Depends(get_db)):
-    return AdminAuthService.login(db, payload.email, payload.password, client_ip(request))
+def admin_login(payload: AdminLoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    result = AdminAuthService.login(db, payload.email, payload.password, client_ip(request), user_agent(request), response)
+    if "user" in result:
+        result = {**result, "user": _admin_user(result["user"])}
+    return result
 
 
 @auth_router.post("/mfa")

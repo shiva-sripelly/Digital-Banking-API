@@ -3,6 +3,13 @@ import { act, fireEvent, screen } from "@testing-library/react";
 import api from "../api/axios";
 import { renderApp, signedOut } from "./renderApp";
 
+// The code is entered into 6 boxes; a full code typed/pasted into the first box fills them all
+async function enterCode(code) {
+  fireEvent.change(await screen.findByLabelText("Digit 1 of 6"), { target: { value: code } });
+}
+const codeValue = () =>
+  Array.from({ length: 6 }, (_, i) => screen.getByLabelText(`Digit ${i + 1} of 6`).value).join("");
+
 vi.mock("../api/axios", () => ({
   default: { get: vi.fn(), post: vi.fn() },
 }));
@@ -50,8 +57,8 @@ describe("registration and email verification", () => {
     api.post.mockResolvedValue({ data: { message: "Email verified. You can now log in." } });
     renderApp("/verify-email", { email: "new@example.com", expiresIn: 600, resendIn: 60 });
 
-    fireEvent.change(await screen.findByLabelText("Verification code"), { target: { value: "12a3456" } });
-    expect(screen.getByLabelText("Verification code").value).toBe("123456"); // digits only
+    await enterCode("12a3456");
+    expect(codeValue()).toBe("123456"); // digits only, one per box
     fireEvent.click(screen.getByRole("button", { name: "Verify Email" }));
 
     expect(await screen.findByRole("heading", { name: "Email verified" })).toBeTruthy();
@@ -61,7 +68,7 @@ describe("registration and email verification", () => {
   it("shows the server error for a wrong or expired code", async () => {
     api.post.mockRejectedValue({ response: { status: 400, data: { detail: { code: "invalid_code", message: "Invalid or expired code" } } } });
     renderApp("/verify-email", { email: "new@example.com" });
-    fireEvent.change(await screen.findByLabelText("Verification code"), { target: { value: "000000" } });
+    await enterCode("000000");
     fireEvent.click(screen.getByRole("button", { name: "Verify Email" }));
     expect(await screen.findByText("Invalid or expired code")).toBeTruthy();
   });
@@ -86,5 +93,43 @@ describe("registration and email verification", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("arriving from the login page", () => {
+  it("sends a verification code automatically", async () => {
+    api.post.mockResolvedValue({ data: codeSent });
+    renderApp("/verify-email", { email: "new@example.com" });
+    expect(await screen.findByText(/We sent a 6-digit code to new@example.com/)).toBeTruthy();
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith("/auth/resend-verification", { email: "new@example.com" });
+  });
+
+  it("does not send a second code right after registration", async () => {
+    renderApp("/verify-email", { email: "new@example.com", expiresIn: 600, resendIn: 60 });
+    await screen.findByText(/We sent a 6-digit code to new@example.com/);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("code boxes", () => {
+  it("moves forward while typing and back on Backspace", async () => {
+    renderApp("/verify-email", { email: "new@example.com", expiresIn: 600, resendIn: 60 });
+    const first = await screen.findByLabelText("Digit 1 of 6");
+    fireEvent.change(first, { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Digit 2 of 6"), { target: { value: "2" } });
+    expect(codeValue()).toBe("42");
+    expect(document.activeElement).toBe(screen.getByLabelText("Digit 3 of 6"));
+
+    fireEvent.keyDown(screen.getByLabelText("Digit 3 of 6"), { key: "Backspace" });
+    expect(codeValue()).toBe("4");
+    expect(document.activeElement).toBe(screen.getByLabelText("Digit 2 of 6"));
+  });
+
+  it("fills all boxes when a code is pasted", async () => {
+    renderApp("/verify-email", { email: "new@example.com", expiresIn: 600, resendIn: 60 });
+    const first = await screen.findByLabelText("Digit 1 of 6");
+    fireEvent.paste(first, { clipboardData: { getData: () => " 987 654 " } });
+    expect(codeValue()).toBe("987654");
   });
 });

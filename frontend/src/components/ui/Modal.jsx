@@ -1,8 +1,13 @@
 import { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import Button from "./Button";
 import Icon from "./Icon";
 
-export function Modal({ open, onClose, title, children, footer, size = "max-w-md" }) {
+/**
+ * `bare` drops the title bar and padding so the content can lay itself out
+ * (the title stays available to screen readers); `showClose` adds a corner ✕.
+ */
+export function Modal({ open, onClose, title, children, footer, size = "max-w-md", bare = false, showClose = false }) {
   const titleId = useId();
   const panelRef = useRef(null);
 
@@ -27,7 +32,9 @@ export function Modal({ open, onClose, title, children, footer, size = "max-w-md
 
   if (!open) return null;
 
-  return (
+  // Portal to <body>: ancestors with transform/backdrop-filter would otherwise
+  // trap this fixed overlay inside them (e.g. the sidebar and top bar)
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
         className="absolute inset-0 bg-plum-950/50 backdrop-blur-sm animate-fade-in"
@@ -42,6 +49,25 @@ export function Modal({ open, onClose, title, children, footer, size = "max-w-md
         tabIndex={-1}
         className={`relative w-full ${size} bg-surface rounded-t-3xl sm:rounded-3xl shadow-2xl animate-toast-in max-h-[90vh] overflow-y-auto outline-none`}
       >
+        {bare ? (
+          <>
+            <h2 id={titleId} className="sr-only">
+              {title}
+            </h2>
+            {showClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute top-4 right-4 z-10 p-2 rounded-lg text-ink-secondary hover:bg-surface-secondary"
+                aria-label="Close dialog"
+              >
+                <Icon name="x" />
+              </button>
+            )}
+            {children}
+          </>
+        ) : (
+          <>
         <div className="flex items-center justify-between px-6 pt-6">
           <h2 id={titleId} className="text-xl font-bold text-ink">
             {title}
@@ -57,8 +83,11 @@ export function Modal({ open, onClose, title, children, footer, size = "max-w-md
         </div>
         <div className="px-6 py-5">{children}</div>
         {footer && <div className="px-6 pb-6 flex flex-col-reverse sm:flex-row gap-3 sm:justify-end">{footer}</div>}
+          </>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import ToastProvider from "../components/ui/ToastProvider";
 import { AppRoutes } from "../App";
+import SessionExpiredPopup from "../components/SessionExpiredPopup";
 
 export const testUser = {
   id: 7,
@@ -57,6 +58,7 @@ export function renderApp(path = "/", state) {
       <ToastProvider>
         <MemoryRouter initialEntries={[state ? { pathname: path, state } : path]}>
           <AppRoutes />
+          <SessionExpiredPopup />
         </MemoryRouter>
       </ToastProvider>
     </AuthProvider>

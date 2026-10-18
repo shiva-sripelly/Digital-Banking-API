@@ -5,6 +5,7 @@ import { FullPageLoader } from "../../components/ProtectedRoute";
 import SandboxBanner from "../../components/SandboxBanner";
 import Button from "../../components/ui/Button";
 import { Input, PasswordInput } from "../../components/ui/Field";
+import OtpInput from "../../components/ui/OtpInput";
 import { Alert } from "../../components/ui/Feedback";
 import Icon from "../../components/ui/Icon";
 import Logo from "../../components/ui/Logo";
@@ -44,6 +45,10 @@ export default function AdminLogin() {
     setLoading(true);
     try {
       const result = await startLogin(form.email, form.password);
+      if (!result.mfa_required) {
+        navigate(redirectTo, { replace: true, state: { welcome: true } });
+        return;
+      }
       setChallenge(result);
       setStep("mfa");
       setForm((f) => ({ ...f, password: "" }));
@@ -64,7 +69,7 @@ export default function AdminLogin() {
     setLoading(true);
     try {
       await completeMfa(challenge.mfa_token, code);
-      navigate(redirectTo, { replace: true });
+      navigate(redirectTo, { replace: true, state: { welcome: true } });
     } catch (err) {
       fail(err, "Verification failed");
       setCode("");
@@ -89,14 +94,14 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen flex flex-col bg-plum-950">
       <SandboxBanner tone="dark" />
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-10">
-        <div className="mb-6 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-5">
+        <div className="mb-4 text-center">
           <Logo light to="/" />
           <p className="mt-2 text-xs font-bold tracking-[0.25em] uppercase text-plum-300">Admin portal</p>
         </div>
 
         <div className="w-full max-w-md bg-surface rounded-3xl shadow-2xl p-6 sm:p-8">
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-5">
             <span className="w-11 h-11 rounded-xl bg-primary text-milk-100 flex items-center justify-center">
               <Icon name={step === "password" ? "lock" : "shield"} />
             </span>
@@ -174,16 +179,14 @@ export default function AdminLogin() {
                 </div>
               )}
 
-              <Input
+              <OtpInput
                 label="Authentication code"
-                icon="key"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="6-digit code"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="[&_input]:tracking-[0.4em] [&_input]:font-semibold"
-                required
+                onChange={(next) => {
+                  setCode(next);
+                  if (error) setError("");
+                }}
+                error={Boolean(error)}
               />
               <Button type="submit" loading={loading} loadingText="Verifying..." className="w-full">
                 {challenge.enrollment_required ? "Confirm & sign in" : "Verify & sign in"}
@@ -203,7 +206,7 @@ export default function AdminLogin() {
           )}
         </div>
 
-        <p className="mt-6 text-sm text-plum-300">
+        <p className="mt-4 text-sm text-plum-300">
           Not an administrator?{" "}
           <Link to="/login" className="font-semibold text-milk-100 underline-offset-4 hover:underline">
             Customer login

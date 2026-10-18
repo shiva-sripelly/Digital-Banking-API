@@ -64,10 +64,12 @@ describe("admin portal", () => {
     expect(screen.getByText("JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP")).toBeTruthy();
     expect(api.post).toHaveBeenCalledTimes(1); // no session yet
 
-    fireEvent.change(screen.getByLabelText("Authentication code"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("Digit 1 of 6"), { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm & sign in" }));
 
     expect(await screen.findByRole("heading", { name: "Operations overview" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Admin authentication successful" })).toBeTruthy();
+    expect(screen.getByText("You've successfully signed in to the admin portal.")).toBeTruthy();
     expect(api.post).toHaveBeenLastCalledWith("/admin/auth/mfa", { mfa_token: "mfa-token-123", code: "123456" });
     expect(getCsrfToken("admin")).toBe("csrf-admin");
   });

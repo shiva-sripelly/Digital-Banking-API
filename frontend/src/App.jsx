@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { BrowserRouter, Navigate, Outlet, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { AdminAuthProvider } from "./context/AdminAuthContext";
 import ProtectedRoute, { PublicOnlyRoute } from "./components/ProtectedRoute";
 import AdminProtectedRoute from "./components/AdminProtectedRoute";
 import Navbar, { Sidebar } from "./components/Navbar";
 import SandboxBanner from "./components/SandboxBanner";
+import WelcomeModal from "./components/WelcomeModal";
+import SessionExpiredPopup from "./components/SessionExpiredPopup";
 import AdminLayout from "./components/admin/AdminLayout";
 import ToastProvider from "./components/ui/ToastProvider";
 
@@ -32,6 +34,10 @@ import AccessDenied from "./pages/admin/AccessDenied";
 
 function AppLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Clear the one-time flag so the popup doesn't return on refresh/back
+  const closeWelcome = () => navigate(location.pathname + location.search, { replace: true, state: null });
 
   return (
     <div className="min-h-screen bg-background">
@@ -41,6 +47,7 @@ function AppLayout({ children }) {
         <Navbar onMenuClick={() => setSidebarOpen(true)} sidebarOpen={sidebarOpen} />
         <main className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl mx-auto">{children}</main>
       </div>
+      <WelcomeModal open={Boolean(location.state?.welcome)} onClose={closeWelcome} />
     </div>
   );
 }
@@ -111,6 +118,7 @@ export default function App() {
       <ToastProvider>
         <BrowserRouter>
           <AppRoutes />
+          <SessionExpiredPopup />
         </BrowserRouter>
       </ToastProvider>
     </AuthProvider>

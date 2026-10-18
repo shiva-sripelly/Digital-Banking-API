@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.rate_limit import (
     ADMIN_LOGIN_FAILURES_PER_EMAIL,
     ADMIN_LOGIN_PER_IP,
@@ -56,7 +57,7 @@ def _mfa_unavailable() -> HTTPException:
 
 class AdminAuthService:
     @staticmethod
-    def login(db: Session, email: str, password: str, ip: str):
+    def login(db: Session, email: str, password: str, ip: str, user_agent: str = "", response: Response | None = None):
         RateLimiter.hit(db, ADMIN_LOGIN_PER_IP, ip)
         RateLimiter.check(db, ADMIN_LOGIN_FAILURES_PER_EMAIL, email)
 
@@ -82,7 +83,11 @@ class AdminAuthService:
                 detail={"code": "email_not_verified", "message": "Verify your email address before signing in."},
             )
 
-        response = {
+        if not settings.ADMIN_MFA_REQUIRED:
+            # Development-only shortcut: email + password signs straight in
+            return AdminAuthService._start_session(db, user, ip, user_agent, response, mfa_verified=False)
+
+        result = {
             "mfa_required": True,
             "enrollment_required": not user.mfa_enabled,
             "mfa_token": create_purpose_token(user.id, MFA_TOKEN_PURPOSE, MFA_TOKEN_MINUTES),
@@ -96,7 +101,7 @@ class AdminAuthService:
                 secret = generate_totp_secret()
                 user.mfa_secret_encrypted = encrypt_secret(secret)
                 user.mfa_last_used_step = None
-                response["enrollment"] = {"secret": secret, "otpauth_uri": totp_provisioning_uri(secret, user.email)}
+                result["enrollment"] = {"secret": secret, "otpauth_uri": totp_provisioning_uri(secret, user.email)}
             elif not user.mfa_secret_encrypted:
                 raise _mfa_unavailable()
         except MFAConfigurationError:
@@ -105,7 +110,7 @@ class AdminAuthService:
 
         AuditService.record(db, "admin.password_verified", "admin", user.id, "user", user.id, ip)
         db.commit()
-        return response
+        return result
 
     @staticmethod
     def verify_mfa(db: Session, mfa_token: str, code: str, ip: str, user_agent: str, response: Response):
@@ -147,11 +152,17 @@ class AdminAuthService:
             user.mfa_enabled = True
             AuditService.record(db, "admin.mfa_enrolled", "admin", user.id, "user", user.id, ip)
 
+        return AdminAuthService._start_session(db, user, ip, user_agent, response, mfa_verified=True)
+
+    @staticmethod
+    def _start_session(db: Session, user: User, ip: str, user_agent: str, response: Response, mfa_verified: bool):
         session, token = SessionService.create(
-            db, user.id, user.role, PORTAL_ADMIN, ip, user_agent, mfa_verified=True
+            db, user.id, user.role, PORTAL_ADMIN, ip, user_agent, mfa_verified=mfa_verified
         )
         user.last_login_at = datetime.now(timezone.utc)
-        AuditService.record(db, "admin.login_succeeded", "admin", user.id, "session", session.id[:8], ip)
+        AuditService.record(
+            db, "admin.login_succeeded", "admin", user.id, "session", session.id[:8], ip, {"mfa": mfa_verified}
+        )
         db.commit()
         SessionService.set_cookie(response, PORTAL_ADMIN, token, session)
 
@@ -168,7 +179,12 @@ class AdminAuthService:
             user_id=user.id,
             dedupe_key=f"admin-login:{session.id}",
         )
-        return {"user": user, "csrf_token": SessionService.csrf_token(session), "expires_at": session.expires_at}
+        return {
+            "mfa_required": False,
+            "user": user,
+            "csrf_token": SessionService.csrf_token(session),
+            "expires_at": session.expires_at,
+        }
 
     @staticmethod
     def logout(db: Session, ctx, response: Response, ip: str):

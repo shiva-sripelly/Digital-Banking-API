@@ -178,11 +178,38 @@ def test_ledger_is_append_only_in_postgres(funded_user):
     funded_user(100)
     db = SessionLocal()
     try:
-        with pytest.raises(DBAPIError, match="append-only"):
+        blocked = "append-only|permission denied"
+        with pytest.raises(DBAPIError, match=blocked):
             db.execute(text("UPDATE ledger_entries SET amount = 999"))
         db.rollback()
-        with pytest.raises(DBAPIError, match="append-only"):
+        with pytest.raises(DBAPIError, match=blocked):
             db.execute(text("DELETE FROM ledger_entries"))
+    finally:
+        db.rollback()
+        db.close()
+
+
+@postgres_only
+def test_transaction_history_cannot_be_updated_deleted_or_truncated(funded_user):
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    funded_user(100)
+    db = SessionLocal()
+    try:
+        # A restricted runtime role fails at the privilege layer. A migration
+        # owner reaches the trigger and receives the append-only error.
+        blocked = "append-only|permission denied"
+        with pytest.raises(DBAPIError, match=blocked):
+            db.execute(text("UPDATE transactions SET status = 'failed'"))
+        db.rollback()
+        with pytest.raises(DBAPIError, match=blocked):
+            db.execute(text("DELETE FROM transactions"))
+        db.rollback()
+        with pytest.raises(DBAPIError, match=blocked):
+            db.execute(text("SET LOCAL statement_timeout = '5s'"))
+            db.execute(text("TRUNCATE TABLE transactions CASCADE"))
     finally:
         db.rollback()
         db.close()

@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Dropdown, { menuItemClass } from "./ui/Dropdown";
 import Icon from "./ui/Icon";
 import Logo from "./ui/Logo";
 import { navItems } from "./navItems";
+import ConfirmLogout from "./ConfirmLogout";
 
 function initials(name = "") {
   return name
@@ -18,6 +20,8 @@ function initials(name = "") {
 export function Sidebar({ open, onClose }) {
   const { logout } = useAuth();
   const navigate = useNavigate();
+
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -76,7 +80,7 @@ export function Sidebar({ open, onClose }) {
         <div className="p-3 border-t border-white/10">
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={() => setConfirmLogout(true)}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-plum-200 hover:text-milk-100 hover:bg-white/6 transition"
           >
             <Icon name="logout" />
@@ -84,6 +88,7 @@ export function Sidebar({ open, onClose }) {
           </button>
         </div>
       </aside>
+      <ConfirmLogout open={confirmLogout} onCancel={() => setConfirmLogout(false)} onConfirm={handleLogout} />
     </>
   );
 }
@@ -95,6 +100,8 @@ export default function Navbar({ onMenuClick, sidebarOpen }) {
   const location = useLocation();
 
   const title = navItems.find((item) => location.pathname.startsWith(item.to))?.label || "VELQORIN";
+
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -145,13 +152,14 @@ export default function Navbar({ onMenuClick, sidebarOpen }) {
               type="button"
               role="menuitem"
               className={`${menuItemClass} text-danger`}
-              onClick={handleLogout}
+              onClick={() => setConfirmLogout(true)}
             >
               <Icon name="logout" className="w-4 h-4" /> Logout
             </button>
           </Dropdown>
         )}
       </div>
+      <ConfirmLogout open={confirmLogout} onCancel={() => setConfirmLogout(false)} onConfirm={handleLogout} />
     </header>
   );
 }

@@ -12,10 +12,15 @@ from cryptography.fernet import Fernet
 # table in that database is emptied between tests.
 TEST_DB = os.path.join(tempfile.gettempdir(), "digital_banking_test.db")
 TEST_WEBHOOK_SECRET = "whsec_test_" + "a" * 32
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", f"sqlite:///{TEST_DB}")
+TEST_MIGRATION_DATABASE_URL = os.environ.get("TEST_MIGRATION_DATABASE_URL", TEST_DATABASE_URL)
+TEST_MAINTENANCE_DATABASE_URL = os.environ.get("TEST_MAINTENANCE_DATABASE_URL", TEST_MIGRATION_DATABASE_URL)
+TEST_SCHEMA_PREPARED = os.environ.get("TEST_SCHEMA_PREPARED", "false").lower() == "true"
 os.environ.update({
     "APP_ENV": "test",
     "SANDBOX_MODE": "true",
-    "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", f"sqlite:///{TEST_DB}"),
+    "DATABASE_URL": TEST_DATABASE_URL,
+    "MIGRATION_DATABASE_URL": TEST_MIGRATION_DATABASE_URL,
     "SECRET_KEY": "test-secret-key-that-is-long-enough-1234567890",
     "MFA_ENCRYPTION_KEY": Fernet.generate_key().decode(),
     "COOKIE_SECURE": "false",
@@ -23,6 +28,7 @@ os.environ.update({
     "FRONTEND_URL": "http://localhost:5173",
     "EMAIL_DELIVERY_MODE": "sync",
     "DEMO_FUNDING_ENABLED": "false",
+    "ADMIN_MFA_REQUIRED": "true",
     "GEMINI_API_KEY": "test",
     "SMTP_HOST": "127.0.0.1",
     "SMTP_PORT": "1",
@@ -49,6 +55,15 @@ from app.services.notification_service import dispatcher
 IS_POSTGRES = engine.dialect.name == "postgresql"
 postgres_only = pytest.mark.skipif(not IS_POSTGRES, reason="needs TEST_DATABASE_URL (PostgreSQL)")
 
+if IS_POSTGRES:
+    from sqlalchemy import create_engine
+
+    migration_engine = create_engine(TEST_MIGRATION_DATABASE_URL)
+    maintenance_engine = create_engine(TEST_MAINTENANCE_DATABASE_URL)
+else:
+    migration_engine = engine
+    maintenance_engine = engine
+
 
 # --- Database ----------------------------------------------------------------------
 
@@ -59,24 +74,45 @@ def schema():
         from alembic import command
         from alembic.config import Config
 
-        Base.metadata.drop_all(bind=engine)
-        with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
         cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "alembic"))
-        command.upgrade(cfg, "head")
+        if TEST_SCHEMA_PREPARED:
+            # A restricted-role test database is migrated and granted before
+            # pytest starts. Re-running upgrade verifies that only the
+            # migration connection can inspect/manage the schema without
+            # discarding its carefully scoped runtime grants.
+            command.upgrade(cfg, "head")
+        else:
+            Base.metadata.drop_all(bind=migration_engine)
+            with migration_engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+            command.upgrade(cfg, "head")
     yield
 
 
 @pytest.fixture(autouse=True)
 def fresh_db():
     if IS_POSTGRES:
+        if maintenance_engine.url.database == "digital_banking_db":
+            raise RuntimeError("PostgreSQL tests refuse to clean the development database")
         tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
-        with engine.begin() as conn:
-            # replica role skips the append-only triggers for test cleanup only
-            conn.execute(text("SET session_replication_role = replica"))
-            conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
-            conn.execute(text("SET session_replication_role = DEFAULT"))
+        with maintenance_engine.begin() as conn:
+            if maintenance_engine.url.username == "velqorin_migrator":
+                # The migration owner may clean only this explicitly guarded,
+                # disposable test database. DDL is transactional: any failure
+                # rolls the temporary trigger state back automatically.
+                protected = ("transactions", "ledger_entries", "audit_events")
+                for table in protected:
+                    conn.execute(text(f"ALTER TABLE {table} DISABLE TRIGGER USER"))
+                conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+                for table in protected:
+                    conn.execute(text(f"ALTER TABLE {table} ENABLE TRIGGER USER"))
+            else:
+                # Legacy test-owner cleanup. Application requests and Alembic
+                # never receive this connection.
+                conn.execute(text("SET session_replication_role = replica"))
+                conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+                conn.execute(text("SET session_replication_role = DEFAULT"))
     else:
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)

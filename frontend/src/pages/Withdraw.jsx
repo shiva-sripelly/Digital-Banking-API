@@ -2,12 +2,10 @@ import { useRef, useState } from "react";
 import api from "../api/axios";
 import { newIdempotencyKey } from "../api/session";
 import useApi from "../hooks/useApi";
-import { useToast } from "../context/ToastContext";
 import {
   AmountInput,
   BalanceSummary,
   PageHeader,
-  ReceiptCard,
   SummaryRows
 } from "../components/banking";
 import Button from "../components/ui/Button";
@@ -15,10 +13,14 @@ import { Alert } from "../components/ui/Feedback";
 import { ConfirmDialog } from "../components/ui/Modal";
 import { getErrorMessage } from "../utils/errors";
 import { validateAmount } from "../utils/validation";
-import { formatCurrency } from "../utils/format";
+import { formatCurrency, formatDate } from "../utils/format";
+import {
+  InsufficientBalancePopup,
+  TransactionFailedPopup,
+  TransactionSuccessPopup,
+} from "../components/TransactionPopups";
 
 export default function Withdraw() {
-  const { notify } = useToast();
   const account = useApi("/accounts/me");
 
   const [amount, setAmount] = useState("");
@@ -26,7 +28,9 @@ export default function Withdraw() {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [receipt, setReceipt] = useState(null);
+  const [result, setResult] = useState(null); // success popup
+  const [failure, setFailure] = useState(null); // failed popup
+  const [shortfall, setShortfall] = useState(null); // insufficient balance popup
   const inFlight = useRef(false);
   // Reused if this exact submission is retried, so money can't move twice
   const requestKey = useRef(null);
@@ -34,9 +38,14 @@ export default function Withdraw() {
   const handleReview = (e) => {
     e.preventDefault();
     setError("");
-    const amountError = validateAmount(amount, { max: account.data?.balance });
+    const amountError = validateAmount(amount);
     setFieldError(amountError);
-    if (!amountError) setConfirming(true);
+    if (amountError) return;
+    if (Number(amount) > Number(account.data?.balance || 0)) {
+      setShortfall({ available: Number(account.data?.balance || 0), required: Number(amount) });
+      return;
+    }
+    setConfirming(true);
   };
 
   const handleConfirm = async () => {
@@ -52,12 +61,24 @@ export default function Withdraw() {
         { headers: { "Idempotency-Key": requestKey.current } }
       );
       requestKey.current = null;
-      setReceipt(response.data);
+      const done = response.data;
+      setResult({
+        message: `${formatCurrency(done.amount)} has been withdrawn from your account.`,
+        rows: [
+          ["Transaction ID", done.reference],
+          ["Date & Time", formatDate(new Date())],
+          ["Remaining Balance", formatCurrency(done.balance)],
+        ],
+      });
       setAmount("");
-      notify("Withdrawal successful");
       account.reload();
     } catch (err) {
-      setError(getErrorMessage(err, "Withdraw failed"));
+      const reason = getErrorMessage(err, "Withdraw failed");
+      if (reason === "Insufficient balance") {
+        setShortfall({ available: Number(account.data?.balance || 0), required: Number(amount) });
+      } else {
+        setFailure({ reason, at: new Date() });
+      }
       // Keep the key only when the outcome is unknown (no response), so a retry
       // can't duplicate a transfer that actually went through
       if (err?.response) requestKey.current = null;
@@ -67,30 +88,6 @@ export default function Withdraw() {
       setConfirming(false);
     }
   };
-
-  if (receipt) {
-    return (
-      <div className="max-w-xl mx-auto">
-        <ReceiptCard
-          title="Withdrawal successful"
-          rows={[
-            ["Amount", formatCurrency(receipt.amount)],
-            ["New balance", formatCurrency(receipt.balance)],
-            ["Account", receipt.account_number],
-            ["Reference", <span key="r" className="font-mono text-sm">{receipt.reference}</span>],
-          ]}
-          actions={
-            <>
-              <Button variant="secondary" to="/history">
-                View transactions
-              </Button>
-              <Button onClick={() => setReceipt(null)}>Make another withdrawal</Button>
-            </>
-          }
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-xl mx-auto">
@@ -144,6 +141,17 @@ export default function Withdraw() {
           ]}
         />
       </ConfirmDialog>
+
+      <TransactionSuccessPopup result={result} onDone={() => setResult(null)} />
+      <TransactionFailedPopup
+        failure={failure}
+        onClose={() => setFailure(null)}
+        onRetry={() => {
+          setFailure(null);
+          setConfirming(true);
+        }}
+      />
+      <InsufficientBalancePopup shortfall={shortfall} onClose={() => setShortfall(null)} />
     </div>
   );
 }

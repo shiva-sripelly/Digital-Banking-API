@@ -18,3 +18,6 @@ export function newIdempotencyKey() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
+
+// Fired by the API client when a signed-in session is rejected (expired/revoked)
+export const SESSION_EXPIRED_EVENT = "velqorin:session-expired";

@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     # --- Database ----------------------------------------------------------
     DATABASE_URL: str
+    # Alembic-only connection. Runtime code must never use this value.
+    MIGRATION_DATABASE_URL: str | None = None
 
     # --- Sessions / tokens -------------------------------------------------
     SECRET_KEY: str
@@ -38,6 +40,9 @@ class Settings(BaseSettings):
     # Key used to encrypt admin TOTP secrets at rest (Fernet, urlsafe base64)
     MFA_ENCRYPTION_KEY: str = ""
     MFA_ISSUER: str = "VELQORIN Admin"
+    # Authenticator-app step for admin sign-in. Can be turned off for local
+    # development only; production refuses to start without it.
+    ADMIN_MFA_REQUIRED: bool = True
 
     # --- One-time email codes ------------------------------------------------
     EMAIL_CODE_EXPIRE_MINUTES: int = 10
@@ -111,6 +116,8 @@ class Settings(BaseSettings):
                 problems.append("COOKIE_SECURE must be true")
             if self.DEMO_FUNDING_ENABLED:
                 problems.append("DEMO_FUNDING_ENABLED must be false")
+            if not self.ADMIN_MFA_REQUIRED:
+                problems.append("ADMIN_MFA_REQUIRED must be true")
             if problems:
                 raise ValueError("Unsafe production configuration: " + "; ".join(problems))
         elif self.secret_key_is_weak:

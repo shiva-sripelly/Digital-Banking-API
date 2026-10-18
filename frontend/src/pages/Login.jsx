@@ -35,7 +35,8 @@ export default function Login() {
 
     try {
       await login(form.email, form.password);
-      navigate(redirectTo, { replace: true });
+      // The layout shows the "Welcome back" popup once on arrival
+      navigate(redirectTo, { replace: true, state: { welcome: true } });
     } catch (err) {
       setError(getErrorMessage(err, "Login failed"));
       setErrorCode(getErrorCode(err) || "");

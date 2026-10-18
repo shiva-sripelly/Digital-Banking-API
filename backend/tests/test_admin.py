@@ -242,3 +242,17 @@ def test_transaction_and_audit_monitoring(admin_client, funded_user, make_user):
     audit = admin_client.get("/admin/audit-events?action=admin.").json()
     assert any(e["action"] == "admin.login_succeeded" for e in audit["items"])
     assert admin_client.get("/admin/reconciliation").json()["status"] == "matched"
+
+
+def test_password_only_admin_sign_in_when_mfa_disabled(monkeypatch, outbox):
+    from app.core.config import settings
+
+    run_create_admin(monkeypatch)
+    c = new_client()
+    c.post("/auth/verify-email", json={"email": ADMIN_EMAIL, "code": outbox.latest_code(ADMIN_EMAIL)})
+    monkeypatch.setattr(settings, "ADMIN_MFA_REQUIRED", False)
+
+    resp = c.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    assert resp.status_code == 200 and resp.json()["mfa_required"] is False
+    assert c.get("/admin/metrics").status_code == 200
+    assert new_client().post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": "wrong"}).status_code == 401

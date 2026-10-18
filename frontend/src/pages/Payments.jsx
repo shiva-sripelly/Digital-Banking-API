@@ -5,9 +5,9 @@ import { Elements } from "@stripe/react-stripe-js";
 import api from "../api/axios";
 import { newIdempotencyKey } from "../api/session";
 import useApi from "../hooks/useApi";
-import { useToast } from "../context/ToastContext";
 import StripeCheckoutForm from "../components/StripeCheckoutForm";
-import { AmountInput, BalanceSummary, PageHeader, ReceiptCard, SummaryRows } from "../components/banking";
+import { AmountInput, BalanceSummary, PageHeader, SummaryRows } from "../components/banking";
+import { TransactionFailedPopup, TransactionSuccessPopup } from "../components/TransactionPopups";
 import Button from "../components/ui/Button";
 import { Alert, EmptyState, PaymentStatusBadge, Skeleton } from "../components/ui/Feedback";
 import Icon from "../components/ui/Icon";
@@ -26,7 +26,6 @@ const FINAL_STATUSES = new Set(["succeeded", "failed", "canceled", "refunded", "
 const fromMinor = (minor) => Number(minor || 0) / 100;
 
 export default function Payments() {
-  const { notify } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const account = useApi("/accounts/me");
   const config = useApi("/payments/config");
@@ -37,7 +36,8 @@ export default function Payments() {
   const [starting, setStarting] = useState(false);
   const [checkout, setCheckout] = useState(null); // { payment, clientSecret }
   const [waiting, setWaiting] = useState(false); // server is confirming with Stripe
-  const [receipt, setReceipt] = useState(null);
+  const [paid, setPaid] = useState(null); // success popup
+  const [failure, setFailure] = useState(null); // failed popup
   const [historyPage, setHistoryPage] = useState(1);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [selected, setSelected] = useState(null);
@@ -83,10 +83,10 @@ export default function Payments() {
             attemptKey.current = null;
             if (data.status === "succeeded") {
               reloadAccount();
-              setReceipt(data);
-              notify("Money added to your wallet");
+              setPaid(data);
+              setAmount("");
             } else {
-              setError(data.failure_reason || `Payment ${data.status}`);
+              setFailure({ reason: data.failure_reason || `Payment ${data.status}`, reference: data.provider_payment_id, at: new Date() });
             }
             return;
           }
@@ -98,7 +98,7 @@ export default function Payments() {
       setHistoryVersion((v) => v + 1);
       setError("We're still waiting for Stripe to confirm this payment. Check Payment history in a moment.");
     },
-    [reloadAccount, notify]
+    [reloadAccount]
   );
 
   // Returning from a bank authentication redirect (3-D Secure): find the
@@ -143,7 +143,7 @@ export default function Payments() {
       }
       setCheckout({ payment: data, clientSecret: data.client_secret });
     } catch (err) {
-      setError(getErrorMessage(err, "Could not start the payment"));
+      setFailure({ reason: getErrorMessage(err, "Could not start the payment"), at: new Date() });
       // A failed start is still recorded server-side; show it in the history
       setHistoryVersion((v) => v + 1);
       if (err?.response?.status === 409 || err?.response?.status === 502) attemptKey.current = null;
@@ -157,33 +157,6 @@ export default function Payments() {
     setFieldError("");
     attemptKey.current = null;
   };
-
-  if (receipt) {
-    return (
-      <div className="max-w-xl mx-auto">
-        <ReceiptCard
-          title="Money added"
-          rows={[
-            ["Amount", formatCurrency(fromMinor(receipt.amount_minor))],
-            ["New balance", account.data ? formatCurrency(account.data.balance) : "—"],
-            ["Stripe reference", <span key="r" className="font-mono text-sm break-all">{receipt.transaction_reference}</span>],
-            ["Date", formatDate(receipt.succeeded_at || receipt.created_at)],
-            ["Mode", "Stripe test mode (simulated money)"],
-          ]}
-          actions={
-            <Button
-              onClick={() => {
-                setReceipt(null);
-                setAmount("");
-              }}
-            >
-              Add more money
-            </Button>
-          }
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -306,6 +279,21 @@ export default function Payments() {
           />
         )}
       </Modal>
+
+      <TransactionSuccessPopup
+        result={
+          paid && {
+            message: `${formatCurrency(fromMinor(paid.amount_minor))} has been added to your wallet.`,
+            rows: [
+              ["Transaction ID", paid.transaction_reference],
+              ["Date & Time", formatDate(paid.succeeded_at || paid.created_at)],
+              ["New Balance", account.data ? formatCurrency(account.data.balance) : "—"],
+            ],
+          }
+        }
+        onDone={() => setPaid(null)}
+      />
+      <TransactionFailedPopup failure={failure} onClose={() => setFailure(null)} />
     </div>
   );
 }

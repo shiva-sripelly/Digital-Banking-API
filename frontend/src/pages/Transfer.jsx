@@ -2,12 +2,10 @@ import { useRef, useState } from "react";
 import api from "../api/axios";
 import { newIdempotencyKey } from "../api/session";
 import useApi from "../hooks/useApi";
-import { useToast } from "../context/ToastContext";
 import {
   AmountInput,
   BalanceSummary,
   PageHeader,
-  ReceiptCard,
   SummaryRows
 } from "../components/banking";
 import Button from "../components/ui/Button";
@@ -16,12 +14,16 @@ import { Input } from "../components/ui/Field";
 import { ConfirmDialog } from "../components/ui/Modal";
 import { getErrorMessage } from "../utils/errors";
 import { validateAmount } from "../utils/validation";
-import { formatCurrency } from "../utils/format";
+import { formatCurrency, formatDate } from "../utils/format";
+import {
+  InsufficientBalancePopup,
+  TransactionFailedPopup,
+  TransactionSuccessPopup,
+} from "../components/TransactionPopups";
 
 const ACCOUNT_PATTERN = /^\d{6,20}$/;
 
 export default function Transfer() {
-  const { notify } = useToast();
   const account = useApi("/accounts/me");
 
   const [form, setForm] = useState({
@@ -32,7 +34,9 @@ export default function Transfer() {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [receipt, setReceipt] = useState(null);
+  const [result, setResult] = useState(null); // success popup
+  const [failure, setFailure] = useState(null); // failed popup
+  const [shortfall, setShortfall] = useState(null); // insufficient balance popup
   // Synchronous guard: blocks a second submit before React re-renders
   const inFlight = useRef(false);
   // Reused if this exact submission is retried, so money can't move twice
@@ -57,11 +61,16 @@ export default function Transfer() {
     } else if (form.receiver_account_number === account.data?.account_number) {
       errors.receiver_account_number = "You cannot transfer funds to your own account";
     }
-    const amountError = validateAmount(form.amount, { max: account.data?.balance });
+    const amountError = validateAmount(form.amount);
     if (amountError) errors.amount = amountError;
 
     setFieldErrors(errors);
-    if (Object.keys(errors).length === 0) setConfirming(true);
+    if (Object.keys(errors).length > 0) return;
+    if (Number(form.amount) > Number(account.data?.balance || 0)) {
+      setShortfall({ available: Number(account.data?.balance || 0), required: Number(form.amount) });
+      return;
+    }
+    setConfirming(true);
   };
 
   const handleConfirm = async () => {
@@ -77,12 +86,24 @@ export default function Transfer() {
         { headers: { "Idempotency-Key": requestKey.current } }
       );
       requestKey.current = null;
-      setReceipt(response.data);
+      const sent = response.data;
+      setResult({
+        message: `${formatCurrency(sent.amount)} has been transferred to account ••••${sent.receiver_account_number.slice(-4)}.`,
+        rows: [
+          ["Transaction ID", sent.reference],
+          ["Date & Time", formatDate(new Date())],
+          ["Remaining Balance", formatCurrency(Number(account.data?.balance || 0) - Number(sent.amount))],
+        ],
+      });
       setForm({ receiver_account_number: "", amount: "" });
-      notify("Transfer successful");
       account.reload();
     } catch (err) {
-      setError(getErrorMessage(err, "Transfer failed"));
+      const reason = getErrorMessage(err, "Transfer failed");
+      if (reason === "Insufficient balance") {
+        setShortfall({ available: Number(account.data?.balance || 0), required: Number(form.amount) });
+      } else {
+        setFailure({ reason, at: new Date() });
+      }
       // Keep the key only when the outcome is unknown (no response), so a retry
       // can't duplicate a transfer that actually went through
       if (err?.response) requestKey.current = null;
@@ -92,31 +113,6 @@ export default function Transfer() {
       setConfirming(false);
     }
   };
-
-  if (receipt) {
-    return (
-      <div className="max-w-xl mx-auto">
-        <ReceiptCard
-          title="Transfer successful"
-          rows={[
-            ["Amount", formatCurrency(receipt.amount)],
-            ["To account", receipt.receiver_account_number],
-            ["From account", receipt.sender_account_number],
-            ["Reference", <span key="r" className="font-mono text-sm">{receipt.reference}</span>],
-            ["Status", <span key="s" className="capitalize text-success">{receipt.status}</span>],
-          ]}
-          actions={
-            <>
-              <Button variant="secondary" to="/history">
-                View transactions
-              </Button>
-              <Button onClick={() => setReceipt(null)}>Make another transfer</Button>
-            </>
-          }
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-xl mx-auto">
@@ -175,6 +171,17 @@ export default function Transfer() {
           ]}
         />
       </ConfirmDialog>
+
+      <TransactionSuccessPopup result={result} onDone={() => setResult(null)} />
+      <TransactionFailedPopup
+        failure={failure}
+        onClose={() => setFailure(null)}
+        onRetry={() => {
+          setFailure(null);
+          setConfirming(true);
+        }}
+      />
+      <InsufficientBalancePopup shortfall={shortfall} onClose={() => setShortfall(null)} />
     </div>
   );
 }

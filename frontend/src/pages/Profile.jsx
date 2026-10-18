@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import useApi from "../hooks/useApi";
@@ -6,11 +7,14 @@ import Button from "../components/ui/Button";
 import { Alert, Skeleton } from "../components/ui/Feedback";
 import Icon from "../components/ui/Icon";
 import { formatDate } from "../utils/format";
+import ConfirmLogout from "../components/ConfirmLogout";
 
 export default function Profile() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const account = useApi("/accounts/me");
+
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -98,11 +102,12 @@ export default function Profile() {
             </Button>
           </div>
 
-          <Button variant="ghost" onClick={handleLogout} className="mt-4 text-danger">
+          <Button variant="ghost" onClick={() => setConfirmLogout(true)} className="mt-4 text-danger">
             <Icon name="logout" className="w-4 h-4" /> Logout
           </Button>
         </section>
       </div>
+      <ConfirmLogout open={confirmLogout} onCancel={() => setConfirmLogout(false)} onConfirm={handleLogout} />
     </div>
   );
 }

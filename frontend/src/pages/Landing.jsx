@@ -215,7 +215,7 @@ export default function Landing() {
                 <li><Link to="/dashboard" className="hover:text-milk-100">Dashboard</Link></li>
               ) : (
                 <>
-                  <li><Link to="/login" className="hover:text-milk-100">Login</Link></li>
+                  <li><Link to="/admin/login" className="hover:text-milk-100">Admin Login</Link></li>
                   <li><Link to="/register" className="hover:text-milk-100">Open an Account</Link></li>
                   <li><Link to="/forgot-password" className="hover:text-milk-100">Forgot password</Link></li>
                 </>

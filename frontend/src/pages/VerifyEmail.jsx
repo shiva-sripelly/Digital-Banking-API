@@ -4,6 +4,7 @@ import api from "../api/axios";
 import AuthLayout from "../components/AuthLayout";
 import Button from "../components/ui/Button";
 import { Input } from "../components/ui/Field";
+import OtpInput from "../components/ui/OtpInput";
 import { Alert } from "../components/ui/Feedback";
 import Icon from "../components/ui/Icon";
 import { useToast } from "../context/ToastContext";
@@ -44,21 +45,49 @@ export default function VerifyEmail() {
   const initial = location.state || {};
   const loginPath = initial.portal === "admin" ? "/admin/login" : "/login";
 
+  // Registration has just sent a code (it passes expiresIn). Arriving from a
+  // login "Verify my email" link, no code was sent yet, so send one now.
+  const justRegistered = Boolean(initial.email && initial.expiresIn);
+  const autoSend = Boolean(initial.email) && !justRegistered;
+
   const [email, setEmail] = useState(initial.email || "");
   const [code, setCode] = useState("");
   const [expiresIn, setExpiresIn] = useState(initial.expiresIn || DEFAULT_EXPIRY);
-  const [resendIn, setResendIn] = useState(initial.resendIn ?? (initial.email ? DEFAULT_COOLDOWN : 0));
-  const [sentCount, setSentCount] = useState(initial.email ? 1 : 0);
+  const [resendIn, setResendIn] = useState(justRegistered ? initial.resendIn ?? DEFAULT_COOLDOWN : 0);
+  const [sentCount, setSentCount] = useState(justRegistered ? 1 : 0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState(
-    initial.email ? `We sent a 6-digit code to ${initial.email}.` : ""
+    justRegistered
+      ? `We sent a 6-digit code to ${initial.email}.`
+      : autoSend
+        ? `Sending a verification code to ${initial.email}…`
+        : ""
   );
   const [verifying, setVerifying] = useState(false);
-  const [resending, setResending] = useState(false);
+  const [resending, setResending] = useState(autoSend);
   const [verified, setVerified] = useState(false);
+  const autoSent = useRef(false);
 
   const expiryLeft = useCountdown(expiresIn, sentCount);
   const cooldownLeft = useCountdown(resendIn, sentCount);
+
+  useEffect(() => {
+    if (!autoSend || autoSent.current) return;
+    autoSent.current = true;
+    api
+      .post("/auth/resend-verification", { email: initial.email })
+      .then(({ data }) => {
+        setExpiresIn(data.code_expires_in);
+        setResendIn(data.resend_available_in);
+        setSentCount((n) => n + 1);
+        setMessage(`We sent a 6-digit code to ${initial.email}. Check your inbox and spam folder.`);
+      })
+      .catch((err) => {
+        setMessage("");
+        setError(getErrorMessage(err, "Could not send a code. Use Resend code to try again."));
+      })
+      .finally(() => setResending(false));
+  }, [autoSend, initial.email]);
 
   const handleVerify = async (e) => {
     e.preventDefault();
@@ -138,16 +167,14 @@ export default function VerifyEmail() {
           required
         />
 
-        <Input
+        <OtpInput
           label="Verification code"
-          name="code"
-          icon="key"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          placeholder="6-digit code"
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          className="[&_input]:tracking-[0.4em] [&_input]:font-semibold"
+          onChange={(next) => {
+            setCode(next);
+            if (error) setError("");
+          }}
+          error={Boolean(error)}
           hint={
             sentCount > 0
               ? expiryLeft > 0
@@ -155,7 +182,6 @@ export default function VerifyEmail() {
                 : "This code has expired. Request a new one."
               : "Didn't get a code? Request one below."
           }
-          required
         />
 
         <Button type="submit" loading={verifying} loadingText="Verifying..." className="w-full">

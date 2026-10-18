@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getCsrfToken, portalForUrl, setCsrfToken } from "./session";
+import { SESSION_EXPIRED_EVENT, getCsrfToken, portalForUrl, setCsrfToken } from "./session";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -30,8 +30,9 @@ api.interceptors.response.use(
     const isAuthCall = portal === "admin" ? url.startsWith("/admin/auth/") : url.startsWith("/auth/");
 
     if (status === 401 && !isAuthCall && getCsrfToken(portal)) {
+      // Show the "Session Expired" popup; it sends the user to sign in
       setCsrfToken(portal, null);
-      window.location.assign(portal === "admin" ? "/admin/login" : "/login");
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { portal } }));
     } else if (status === 403 && portal === "admin" && !isAuthCall) {
       window.location.assign("/admin/access-denied");
     }
