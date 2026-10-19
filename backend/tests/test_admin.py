@@ -1,13 +1,17 @@
 import sys
+import time
 from decimal import Decimal
 
 import pytest
+from fastapi import WebSocketDisconnect
 
+from app.core.config import Settings, settings
 from app.core.database import SessionLocal
-from app.core.security import decrypt_secret, totp_at, TOTP_STEP_SECONDS
+from app.core.security import decode_token, decrypt_secret, encrypt_secret, totp_at, TOTP_STEP_SECONDS
 from app.models.audit_event import AuditEvent
-from app.models.auth_session import AuthSession
+from app.models.auth_session import PORTAL_ADMIN, AuthSession
 from app.models.user import User
+from app.services.session_service import ADMIN_COOKIE, SessionService
 from scripts import create_admin
 from tests.conftest import login, new_client
 
@@ -35,12 +39,19 @@ def _user(email):
         db.close()
 
 
+def _verified_admin_client(monkeypatch, outbox):
+    """Provision and email-verify an Admin without completing MFA."""
+    assert run_create_admin(monkeypatch) == 0
+    client = new_client()
+    code = outbox.latest_code(ADMIN_EMAIL)
+    assert client.post("/auth/verify-email", json={"email": ADMIN_EMAIL, "code": code}).status_code == 200
+    return client
+
+
 @pytest.fixture
 def admin_client(monkeypatch, outbox):
     """Provision, verify email, enroll MFA and return a signed-in admin client."""
-    assert run_create_admin(monkeypatch) == 0
-    c = new_client()
-    assert c.post("/auth/verify-email", json={"email": ADMIN_EMAIL, "code": outbox.latest_code(ADMIN_EMAIL)}).status_code == 200
+    c = _verified_admin_client(monkeypatch, outbox)
 
     step1 = c.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}).json()
     assert step1["mfa_required"] and step1["enrollment_required"]
@@ -106,6 +117,47 @@ def test_admin_login_requires_verified_email(monkeypatch):
     assert resp.status_code == 403 and resp.json()["detail"]["code"] == "email_not_verified"
 
 
+def test_unenrolled_admin_gets_bound_pending_session_and_existing_secret_is_reused(monkeypatch, outbox):
+    c = _verified_admin_client(monkeypatch, outbox)
+    existing_secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    encrypted = encrypt_secret(existing_secret)
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == ADMIN_EMAIL).one()
+        user.mfa_secret_encrypted = encrypted
+        db.commit()
+    finally:
+        db.close()
+
+    response = c.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mfa_required"] is True and body["enrollment_required"] is True
+    assert body["enrollment"]["secret"] == existing_secret
+    assert _user(ADMIN_EMAIL).mfa_secret_encrypted == encrypted
+
+    session_claims = decode_token(c.cookies.get(ADMIN_COOKIE), "session")
+    challenge_claims = decode_token(body["mfa_token"], "admin_mfa")
+    assert session_claims["sid"] == challenge_claims["sid"]
+    assert c.get("/admin/metrics").status_code == 403
+    assert c.get("/admin/auth/me").status_code == 403
+    assert c.get("/admin/auth/session").json() == {"user": None}
+    assert c.post("/admin/auth/refresh").status_code == 404
+
+
+def test_pending_admin_session_cannot_access_websocket(monkeypatch, outbox):
+    c = _verified_admin_client(monkeypatch, outbox)
+    step1 = c.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}).json()
+    assert step1["mfa_required"] is True
+
+    # The application has no Admin WebSocket. Its only socket is customer-only,
+    # and an MFA-pending Admin cookie cannot authenticate to it.
+    with pytest.raises(WebSocketDisconnect) as closed:
+        with c.websocket_connect("/ws/chat"):
+            pass
+    assert closed.value.code == 1008
+
+
 def test_admin_mfa_is_mandatory_and_codes_cannot_be_replayed(admin_client):
     secret = admin_client.mfa_secret
     stored = _user(ADMIN_EMAIL)
@@ -116,15 +168,33 @@ def test_admin_mfa_is_mandatory_and_codes_cannot_be_replayed(admin_client):
     step1 = c.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}).json()
     assert step1["enrollment_required"] is False and "enrollment" not in step1
     # Password alone gives no access
-    assert c.get("/admin/metrics").status_code == 401
+    assert c.get("/admin/metrics").status_code == 403
     # The code already used during enrollment is rejected
     used_code = totp_at(secret)
     assert c.post("/admin/auth/mfa", json={"mfa_token": step1["mfa_token"], "code": used_code}).status_code == 401
     assert c.post("/admin/auth/mfa", json={"mfa_token": step1["mfa_token"], "code": "000000"}).status_code == 401
 
-    import time
     next_code = totp_at(secret, time.time() + TOTP_STEP_SECONDS)
     assert c.post("/admin/auth/mfa", json={"mfa_token": step1["mfa_token"], "code": next_code}).status_code == 200
+
+
+def test_mfa_challenge_is_session_bound_and_concurrent_replay_is_rejected(admin_client):
+    secret = admin_client.mfa_secret
+    first = new_client()
+    second = new_client()
+    first_step = first.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}).json()
+    second_step = second.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}).json()
+    next_code = totp_at(secret, time.time() + TOTP_STEP_SECONDS)
+
+    # A challenge cannot be completed with another pending session's cookie.
+    crossed = second.post("/admin/auth/mfa", json={"mfa_token": first_step["mfa_token"], "code": next_code})
+    assert crossed.status_code == 401 and crossed.json()["detail"]["code"] == "mfa_expired"
+
+    assert first.post("/admin/auth/mfa", json={"mfa_token": first_step["mfa_token"], "code": next_code}).status_code == 200
+    # Neither the completed challenge nor its accepted TOTP step can be reused.
+    repeated = first.post("/admin/auth/mfa", json={"mfa_token": first_step["mfa_token"], "code": next_code})
+    assert repeated.status_code == 401 and repeated.json()["detail"]["code"] == "mfa_expired"
+    assert second.post("/admin/auth/mfa", json={"mfa_token": second_step["mfa_token"], "code": next_code}).status_code == 401
 
 
 def test_customer_credentials_do_not_grant_admin_access(make_user):
@@ -244,15 +314,43 @@ def test_transaction_and_audit_monitoring(admin_client, funded_user, make_user):
     assert admin_client.get("/admin/reconciliation").json()["status"] == "matched"
 
 
-def test_password_only_admin_sign_in_when_mfa_disabled(monkeypatch, outbox):
-    from app.core.config import settings
-
-    run_create_admin(monkeypatch)
-    c = new_client()
-    c.post("/auth/verify-email", json={"email": ADMIN_EMAIL, "code": outbox.latest_code(ADMIN_EMAIL)})
+def test_runtime_flag_cannot_restore_password_only_admin_access(monkeypatch, outbox):
+    c = _verified_admin_client(monkeypatch, outbox)
     monkeypatch.setattr(settings, "ADMIN_MFA_REQUIRED", False)
 
     resp = c.post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
-    assert resp.status_code == 200 and resp.json()["mfa_required"] is False
-    assert c.get("/admin/metrics").status_code == 200
+    assert resp.status_code == 200 and resp.json()["mfa_required"] is True
+    assert c.get("/admin/metrics").status_code == 403
     assert new_client().post("/admin/auth/login", json={"email": ADMIN_EMAIL, "password": "wrong"}).status_code == 401
+
+
+def test_configuration_rejects_disabling_admin_mfa():
+    unsafe = settings.model_dump()
+    unsafe["ADMIN_MFA_REQUIRED"] = False
+    with pytest.raises(ValueError, match="ADMIN_MFA_REQUIRED cannot be disabled"):
+        Settings.model_validate(unsafe)
+
+
+def test_pre_fix_unverified_admin_session_is_rejected(monkeypatch, outbox):
+    c = _verified_admin_client(monkeypatch, outbox)
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == ADMIN_EMAIL).one()
+        user.mfa_enabled = True
+        user.mfa_secret_encrypted = encrypt_secret("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
+        session, token = SessionService.create(
+            db, user.id, user.role, PORTAL_ADMIN, "127.0.0.1", "pre-fix-test", mfa_verified=False
+        )
+        db.commit()
+        session_id = session.id
+    finally:
+        db.close()
+
+    c.cookies.set(ADMIN_COOKIE, token, path="/admin")
+    assert c.get("/admin/metrics").status_code == 403
+    assert c.get("/admin/auth/session").json() == {"user": None}
+    db = SessionLocal()
+    try:
+        assert db.get(AuthSession, session_id).mfa_verified is False
+    finally:
+        db.close()

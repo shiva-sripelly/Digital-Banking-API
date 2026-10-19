@@ -17,8 +17,6 @@ export function AdminAuthProvider({ children }) {
   // Step 1: password. Returns { mfa_token, enrollment_required, enrollment? }
   const startLogin = async (email, password) => {
     const response = await api.post("/admin/auth/login", { email, password });
-    // MFA turned off on the server (development): already signed in
-    if (response.data.mfa_required === false) applySession(response.data);
     return response.data;
   };
 

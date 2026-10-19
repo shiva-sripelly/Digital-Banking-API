@@ -1,8 +1,10 @@
-"""Admin sign-in: password, then TOTP. There is no session until MFA passes.
+"""Admin sign-in: password, then TOTP.
 
 First sign-in after `create_admin.py` enrolls the authenticator: the server
 generates a secret (stored Fernet-encrypted), shows it once, and only enables
-MFA when the admin proves possession with a valid code.
+MFA when the admin proves possession with a valid code. Password verification
+creates only an MFA-pending server session; every Admin API continues to reject
+that session until its bound challenge is completed.
 """
 import logging
 from datetime import datetime, timezone
@@ -10,7 +12,6 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.rate_limit import (
     ADMIN_LOGIN_FAILURES_PER_EMAIL,
     ADMIN_LOGIN_PER_IP,
@@ -28,7 +29,7 @@ from app.core.security import (
     verify_password,
     verify_totp,
 )
-from app.models.auth_session import PORTAL_ADMIN
+from app.models.auth_session import PORTAL_ADMIN, AuthSession
 from app.models.user import ROLE_ADMIN, User
 from app.repositories.user_repository import UserRepository, normalize_email
 from app.services.audit_service import AuditService
@@ -57,7 +58,7 @@ def _mfa_unavailable() -> HTTPException:
 
 class AdminAuthService:
     @staticmethod
-    def login(db: Session, email: str, password: str, ip: str, user_agent: str = "", response: Response | None = None):
+    def login(db: Session, email: str, password: str, ip: str, user_agent: str, response: Response):
         RateLimiter.hit(db, ADMIN_LOGIN_PER_IP, ip)
         RateLimiter.check(db, ADMIN_LOGIN_FAILURES_PER_EMAIL, email)
 
@@ -83,39 +84,79 @@ class AdminAuthService:
                 detail={"code": "email_not_verified", "message": "Verify your email address before signing in."},
             )
 
-        if not settings.ADMIN_MFA_REQUIRED:
-            # Development-only shortcut: email + password signs straight in
-            return AdminAuthService._start_session(db, user, ip, user_agent, response, mfa_verified=False)
-
-        result = {
-            "mfa_required": True,
-            "enrollment_required": not user.mfa_enabled,
-            "mfa_token": create_purpose_token(user.id, MFA_TOKEN_PURPOSE, MFA_TOKEN_MINUTES),
-            "expires_in": MFA_TOKEN_MINUTES * 60,
-        }
-
         try:
             if not user.mfa_enabled:
-                # New secret for each enrollment attempt; MFA stays disabled
-                # until a code from the new secret is confirmed.
-                secret = generate_totp_secret()
-                user.mfa_secret_encrypted = encrypt_secret(secret)
-                user.mfa_last_used_step = None
-                result["enrollment"] = {"secret": secret, "otpauth_uri": totp_provisioning_uri(secret, user.email)}
+                # An interrupted enrollment may already have a valid encrypted
+                # secret. Reuse it; never silently overwrite recovery material.
+                if user.mfa_secret_encrypted:
+                    secret = decrypt_secret(user.mfa_secret_encrypted)
+                else:
+                    secret = generate_totp_secret()
+                    user.mfa_secret_encrypted = encrypt_secret(secret)
+                    user.mfa_last_used_step = None
             elif not user.mfa_secret_encrypted:
                 raise _mfa_unavailable()
         except MFAConfigurationError:
             db.rollback()
             raise _mfa_unavailable()
 
-        AuditService.record(db, "admin.password_verified", "admin", user.id, "user", user.id, ip)
+        pending_session, session_token = SessionService.create(
+            db, user.id, user.role, PORTAL_ADMIN, ip, user_agent, mfa_verified=False
+        )
+        result = {
+            "mfa_required": True,
+            "enrollment_required": not user.mfa_enabled,
+            "mfa_token": create_purpose_token(
+                user.id, MFA_TOKEN_PURPOSE, MFA_TOKEN_MINUTES, session_id=pending_session.id
+            ),
+            "expires_in": MFA_TOKEN_MINUTES * 60,
+        }
+        if not user.mfa_enabled:
+            result["enrollment"] = {"secret": secret, "otpauth_uri": totp_provisioning_uri(secret, user.email)}
+
+        AuditService.record(
+            db, "admin.password_verified", "admin", user.id, "session", pending_session.id[:8], ip,
+            {"state": "mfa_pending", "enrollment_required": not user.mfa_enabled},
+        )
         db.commit()
+        SessionService.set_cookie(response, PORTAL_ADMIN, session_token, pending_session)
         return result
 
     @staticmethod
-    def verify_mfa(db: Session, mfa_token: str, code: str, ip: str, user_agent: str, response: Response):
+    def verify_mfa(
+        db: Session,
+        mfa_token: str,
+        code: str,
+        session_token: str,
+        ip: str,
+        user_agent: str,
+        response: Response,
+    ):
         claims = decode_token(mfa_token, MFA_TOKEN_PURPOSE)
-        if claims is None:
+        session_claims = decode_token(session_token, "session")
+        if (
+            claims is None
+            or session_claims is None
+            or not claims.get("sid")
+            or claims.get("sid") != session_claims.get("sid")
+            or claims.get("sub") != session_claims.get("sub")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "mfa_expired", "message": "Your sign-in step expired. Please sign in again."},
+            )
+
+        pending_session = (
+            db.query(AuthSession)
+            .filter(AuthSession.id == claims["sid"])
+            .with_for_update()
+            .first()
+        )
+        if (
+            not SessionService.is_valid(pending_session, PORTAL_ADMIN)
+            or pending_session.mfa_verified
+            or str(pending_session.user_id) != claims["sub"]
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"code": "mfa_expired", "message": "Your sign-in step expired. Please sign in again."},
@@ -152,19 +193,25 @@ class AdminAuthService:
             user.mfa_enabled = True
             AuditService.record(db, "admin.mfa_enrolled", "admin", user.id, "user", user.id, ip)
 
-        return AdminAuthService._start_session(db, user, ip, user_agent, response, mfa_verified=True)
+        return AdminAuthService._complete_session(db, user, pending_session, session_token, ip, user_agent, response)
 
     @staticmethod
-    def _start_session(db: Session, user: User, ip: str, user_agent: str, response: Response, mfa_verified: bool):
-        session, token = SessionService.create(
-            db, user.id, user.role, PORTAL_ADMIN, ip, user_agent, mfa_verified=mfa_verified
-        )
+    def _complete_session(
+        db: Session,
+        user: User,
+        session: AuthSession,
+        session_token: str,
+        ip: str,
+        user_agent: str,
+        response: Response,
+    ):
+        session.mfa_verified = True
         user.last_login_at = datetime.now(timezone.utc)
         AuditService.record(
-            db, "admin.login_succeeded", "admin", user.id, "session", session.id[:8], ip, {"mfa": mfa_verified}
+            db, "admin.login_succeeded", "admin", user.id, "session", session.id[:8], ip, {"mfa": True}
         )
         db.commit()
-        SessionService.set_cookie(response, PORTAL_ADMIN, token, session)
+        SessionService.set_cookie(response, PORTAL_ADMIN, session_token, session)
 
         Notifier.send(
             db,

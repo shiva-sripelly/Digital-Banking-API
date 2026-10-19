@@ -74,6 +74,21 @@ describe("admin portal", () => {
     expect(getCsrfToken("admin")).toBe("csrf-admin");
   });
 
+  it("fails closed if password login does not return an MFA challenge", async () => {
+    mockGetRoutes(api, {});
+    api.post.mockResolvedValue({ data: { mfa_required: false, user: adminUser, csrf_token: "unsafe" } });
+
+    renderApp("/admin/login");
+    fireEvent.change(await screen.findByLabelText("Admin email"), { target: { value: "ops@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Str0ng!Admin#Pass" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Admin MFA challenge was not provided. Access remains locked.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Administrator sign in" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Operations overview" })).toBeNull();
+    expect(getCsrfToken("admin")).toBeNull();
+  });
+
   it("dashboard shows figures from the metrics API", async () => {
     mockGetRoutes(api, {
       "/admin/auth/session": { user: adminUser, csrf_token: "csrf-admin" },

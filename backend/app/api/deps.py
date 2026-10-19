@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.auth_session import PORTAL_ADMIN, PORTAL_CUSTOMER, AuthSession
@@ -66,8 +65,7 @@ def get_current_user(ctx: AuthContext = Depends(get_customer_context)) -> User:
 
 def get_admin_context(request: Request, db: Session = Depends(get_db)) -> AuthContext:
     ctx = _resolve(request, db, PORTAL_ADMIN)
-    mfa_ok = not settings.ADMIN_MFA_REQUIRED or (ctx.session.mfa_verified and ctx.user.mfa_enabled)
-    if ctx.user.role != ROLE_ADMIN or not mfa_ok:
+    if ctx.user.role != ROLE_ADMIN or not ctx.session.mfa_verified or not ctx.user.mfa_enabled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required")
     return ctx
 

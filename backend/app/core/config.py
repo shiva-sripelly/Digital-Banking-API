@@ -40,8 +40,9 @@ class Settings(BaseSettings):
     # Key used to encrypt admin TOTP secrets at rest (Fernet, urlsafe base64)
     MFA_ENCRYPTION_KEY: str = ""
     MFA_ISSUER: str = "VELQORIN Admin"
-    # Authenticator-app step for admin sign-in. Can be turned off for local
-    # development only; production refuses to start without it.
+    # Authenticator-app verification is mandatory for every Admin session.
+    # Kept as an explicit startup guard so stale unsafe environment files fail
+    # closed rather than silently enabling password-only Admin access.
     ADMIN_MFA_REQUIRED: bool = True
 
     # --- One-time email codes ------------------------------------------------
@@ -101,6 +102,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_safety(self):
+        if not self.ADMIN_MFA_REQUIRED:
+            raise ValueError("Unsafe configuration: ADMIN_MFA_REQUIRED cannot be disabled")
+
         if self.SANDBOX_MODE:
             for name in ("STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY"):
                 if "_live_" in getattr(self, name):
@@ -116,8 +120,6 @@ class Settings(BaseSettings):
                 problems.append("COOKIE_SECURE must be true")
             if self.DEMO_FUNDING_ENABLED:
                 problems.append("DEMO_FUNDING_ENABLED must be false")
-            if not self.ADMIN_MFA_REQUIRED:
-                problems.append("ADMIN_MFA_REQUIRED must be true")
             if problems:
                 raise ValueError("Unsafe production configuration: " + "; ".join(problems))
         elif self.secret_key_is_weak:

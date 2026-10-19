@@ -45,8 +45,8 @@ export default function AdminLogin() {
     setLoading(true);
     try {
       const result = await startLogin(form.email, form.password);
-      if (!result.mfa_required) {
-        navigate(redirectTo, { replace: true, state: { welcome: true } });
+      if (result.mfa_required !== true || !result.mfa_token) {
+        setError("Admin MFA challenge was not provided. Access remains locked.");
         return;
       }
       setChallenge(result);

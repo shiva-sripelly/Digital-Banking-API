@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.request_context import client_ip, user_agent
 from app.services.admin_auth_service import AdminAuthService
 from app.services.admin_service import AdminService
-from app.services.session_service import SessionService
+from app.services.session_service import ADMIN_COOKIE, SessionService
 
 auth_router = APIRouter(prefix="/admin/auth", tags=["Admin authentication"])
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_admin)])
@@ -47,7 +47,15 @@ def admin_login(payload: AdminLoginRequest, request: Request, response: Response
 
 @auth_router.post("/mfa")
 def admin_mfa(payload: AdminMfaRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    result = AdminAuthService.verify_mfa(db, payload.mfa_token, payload.code, client_ip(request), user_agent(request), response)
+    result = AdminAuthService.verify_mfa(
+        db,
+        payload.mfa_token,
+        payload.code,
+        request.cookies.get(ADMIN_COOKIE, ""),
+        client_ip(request),
+        user_agent(request),
+        response,
+    )
     return {**result, "user": _admin_user(result["user"])}
 
 

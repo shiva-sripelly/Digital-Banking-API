@@ -51,18 +51,17 @@ def create_session_token(user_id: int, session_id: str, role: str, expires_at: d
     )
 
 
-def create_purpose_token(user_id: int, purpose: str, minutes: int) -> str:
+def create_purpose_token(user_id: int, purpose: str, minutes: int, session_id: str | None = None) -> str:
     """Short-lived signed token for a single step (e.g. admin MFA)."""
-    return jwt.encode(
-        {
-            "sub": str(user_id),
-            "typ": purpose,
-            "jti": secrets.token_urlsafe(12),
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=minutes),
-        },
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
-    )
+    claims = {
+        "sub": str(user_id),
+        "typ": purpose,
+        "jti": secrets.token_urlsafe(12),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=minutes),
+    }
+    if session_id is not None:
+        claims["sid"] = session_id
+    return jwt.encode(claims, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_token(token: str, expected_type: str) -> dict | None:
